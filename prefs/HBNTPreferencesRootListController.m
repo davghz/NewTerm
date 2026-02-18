@@ -25,9 +25,10 @@
 	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(dismiss)];
 
 	HBAppearanceSettings *appearance = [[HBAppearanceSettings alloc] init];
-	appearance.tintColor = [UIApplication sharedApplication].keyWindow.tintColor;
 	if (@available(iOS 13.0, *)) {
+		appearance.tintColor = [UIColor systemBlueColor];
 	} else {
+		appearance.tintColor = [UIColor colorWithRed:0.0f green:0.478f blue:1.0f alpha:1.0f];
 		appearance.translucentNavigationBar = YES;
 		appearance.tableViewCellTextColor = [UIColor whiteColor];
 		appearance.tableViewCellBackgroundColor = [UIColor colorWithWhite:0.055f alpha:1];

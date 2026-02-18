@@ -150,9 +150,13 @@ class RootViewController: UIViewController {
 
 	@available(iOS 13, *)
 	@objc func addWindow() {
-		let options = UIWindowScene.ActivationRequestOptions()
-		options.requestingScene = view.window!.windowScene
-		UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: options, errorHandler: nil)
+		if #available(iOS 15.0, *) {
+			let options = UIWindowScene.ActivationRequestOptions()
+			options.requestingScene = view.window!.windowScene
+			UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: options, errorHandler: nil)
+		} else {
+			UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil, errorHandler: nil)
+		}
 	}
 
 	@available(iOS 13, *)

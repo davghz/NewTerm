@@ -33,9 +33,13 @@ class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate {
 	// MARK: - Window management
 
 	@IBAction func addWindow() {
-		let options = UIWindowScene.ActivationRequestOptions()
-		options.requestingScene = window!.windowScene
-		UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: options, errorHandler: nil)
+		if #available(iOS 15.0, *) {
+			let options = UIWindowScene.ActivationRequestOptions()
+			options.requestingScene = window!.windowScene
+			UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: options, errorHandler: nil)
+		} else {
+			UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil, errorHandler: nil)
+		}
 	}
 
 	@IBAction func removeWindow() {
