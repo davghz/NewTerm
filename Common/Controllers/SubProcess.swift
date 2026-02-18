@@ -9,124 +9,238 @@
 import Foundation
 import os.log
 
-enum SubProcessIllegalStateError: Error {
+enum SubProcessIllegalStateError: Error, LocalizedError {
 	case alreadyStarted, notStarted
-	case forkFailed, inSandbox
+	case openPtyFailed(errno: errno_t)
+	case loginTtyFailed(errno: errno_t)
+	case forkFailed(errno: errno_t)
 	case deallocatedWhileRunning
+
+	private func errorString(errno: errno_t) -> String {
+		if let string = strerror(errno) {
+			return String(cString: string)
+		}
+		return String(format: .localize("Unknown (%i)"), errno)
+	}
+
+	var errorDescription: String? {
+		switch self {
+		case .alreadyStarted, .notStarted, .deallocatedWhileRunning:
+			return .localize("Internal state error")
+
+		case .openPtyFailed(let errno):
+			return String(format: .localize("Couldn’t initialize a terminal. %@"), errorString(errno: errno))
+
+		case .loginTtyFailed(let errno):
+			return String(format: .localize("Couldn’t prepare terminal for logging in. %@"), errorString(errno: errno))
+
+		case .forkFailed(let errno):
+			return String(format: .localize("Couldn’t start a terminal process. %@"), errorString(errno: errno))
+		}
+	}
 }
 
 enum SubProcessIOError: Error {
-	case readFailed, writeFailed
+	case readFailed(errno: errno_t?)
+	case writeFailed(errno: errno_t?)
 }
 
 protocol SubProcessDelegate: AnyObject {
-
 	func subProcessDidConnect()
-	func subProcess(didReceiveData data: Data)
+	func subProcess(didReceiveData data: [UTF8Char])
 	func subProcess(didDisconnectWithError error: Error?)
 	func subProcess(didReceiveError error: Error)
-
 }
 
-class SubProcess: NSObject {
+class SubProcess {
 
-	private static let newlineData = Data(bytes: "\r\n", count: 2)
+	private static let loginHelper: String = Bundle.main.path(forAuxiliaryExecutable: "NewTermLoginHelper")!
 
-	// Simply used to initialize the terminal and thrown away after startup.
-	private static let defaultWidth: UInt16 = 80
-	private static let defaultHeight: UInt16 = 25
+	private static let loginIsShell: Bool = {
+		#if targetEnvironment(simulator)
+		true
+		#else
+		// TODO: Temporary workaround for XinaA15
+		(try? URL(fileURLWithPath: "/var/Liy/xina").checkResourceIsReachable()) == true
+		#endif
+	}()
 
-	var delegate: SubProcessDelegate?
+	private static let login: String = {
+		#if targetEnvironment(simulator)
+		return "/bin/zsh"
+		#elseif targetEnvironment(macCatalyst)
+		return "/usr/bin/login"
+		#else
+		// TODO: Temporary workaround for XinaA15
+		if loginIsShell {
+			return "/var/jb/bin/zsh"
+		}
+		return ["/var/jb/usr/bin/login", "/usr/bin/login"]
+			.first { (try? URL(fileURLWithPath: $0).checkResourceIsReachable()) == true } ?? "/usr/bin/login"
+		#endif
+	}()
+
+	private static var loginArgv: [String] {
+		#if targetEnvironment(simulator)
+		return ["zsh", "--login", "-i"]
+		#else
+		// TODO: Temporary workaround for XinaA15
+		if loginIsShell {
+			return ["zsh", "--login", "-i"]
+		}
+
+		// Interestingly, despite what login(1) seems to imply, it still seems we need to manually
+		// handle passing the -q (force hush login) flag. iTerm2 does this, so I guess it’s fine?
+		let hushLoginURL = URL(fileURLWithPath: homeDirectory)/".hushlogin"
+		let hushLogin = (try? hushLoginURL.checkResourceIsReachable()) == true
+		return ["login", "-fp\(hushLogin ? "q" : "")", NSUserName(), loginHelper]
+		#endif
+	}
+
+	private static let baseEnvp: [String] = [
+		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
+		"TERM_PROGRAM=NewTerm",
+		"LC_TERMINAL=NewTerm"
+	]
+
+	private static var userPasswd: passwd? {
+		let length = sysconf(_SC_GETPW_R_SIZE_MAX)
+		let buffer = malloc(length)
+		defer { buffer?.deallocate() }
+
+		var pwd = passwd()
+		var result: UnsafeMutablePointer<passwd>? = UnsafeMutablePointer<passwd>.allocate(capacity: 1)
+		guard ie_getpwuid_r(getuid(), &pwd, buffer, length, &result) == 0 else {
+			return nil
+		}
+		return pwd
+	}
+
+	private static var shell: String {
+		if let result = userPasswd?.pw_shell {
+			return String(cString: result)
+		}
+		return "/bin/bash"
+	}
+
+	private static var homeDirectory: String {
+		if let result = userPasswd?.pw_dir {
+			return String(cString: result)
+		}
+		return NSHomeDirectory()
+	}
+
+	weak var delegate: SubProcessDelegate?
 
 	private var childPID: pid_t?
 	private var fileDescriptor: Int32?
-	public var fileHandle: FileHandle?
 
-	var screenSize: ScreenSize = ScreenSize() {
-		didSet {
-			if fileDescriptor == nil {
-				return
-			}
+	private let queue = DispatchQueue(label: "ws.hbang.Terminal.io-queue")
+	private var readSource: DispatchSourceRead?
+	private var signalSource: DispatchSourceProcess?
 
-			var windowSize = winsize()
-			windowSize.ws_col = screenSize.width
-			windowSize.ws_row = screenSize.height
+	private let log = OSLog(subsystem: "ws.hbang.Terminal", category: "SubProcess")
 
-			if ioctl(fileDescriptor!, TIOCSWINSZ, &windowSize) == -1 {
-				os_log("Setting screen size failed: %{public}d: %{public}s", type: .error, errno, strerror(errno))
-				delegate!.subProcess(didReceiveError: SubProcessIOError.writeFailed)
-			}
-		}
+	var screenSize = ScreenSize.default {
+		didSet { updateWindowSize() }
 	}
 
-	func start() throws {
+	func start(initialDirectory: String? = nil) throws {
 		if childPID != nil {
 			throw SubProcessIllegalStateError.alreadyStarted
 		}
 
-		var windowSize = winsize()
-		windowSize.ws_col = SubProcess.defaultWidth
-		windowSize.ws_row = SubProcess.defaultHeight
-
-		fileDescriptor = Int32()
-		let localeCode = self.localeCode
-		let pid = forkpty(&fileDescriptor!, nil, nil, &windowSize)
-
-		switch pid {
-			case -1:
-				if errno == EPERM {
-					throw SubProcessIllegalStateError.inSandbox
-				} else {
-					os_log("Fork failed: %{public}d: %{public}s", type: .error, errno, strerror(errno))
-					throw SubProcessIllegalStateError.forkFailed
-				}
-
-			case 0:
-				// Handle the child subprocess. First try to use /bin/login since it’s a little nicer. Fall
-				// back to /bin/bash if that is available.
-				let loginArgs = ([ "login", "-fp", NSUserName() ] as NSArray).cStringArray()!
-				let bashArgs = ([ "bash", "--login", "-i" ] as NSArray).cStringArray()!
-
-				let env = ([
-					"TERM=xterm-color",
-					"LANG=\(localeCode)",
-					"TERM_PROGRAM=NewTerm",
-					"LC_TERMINAL=NewTerm"
-				] as NSArray).cStringArray()!
-
-				#if !targetEnvironment(simulator)
-				_ = attemptStartProcess(path: "/usr/bin/login", arguments: loginArgs, environment: env)
-				#endif
-				_ = attemptStartProcess(path: "/bin/bash", arguments: bashArgs, environment: env)
-				break
-
-			default:
-				os_log("Process forked: %d", type: .debug, pid)
-				childPID = pid
-
-				fileHandle = FileHandle(fileDescriptor: fileDescriptor!, closeOnDealloc: true)
-				fileHandle!.readabilityHandler = { [weak self] fileHandle in
-					self?.didReceiveData(fileHandle.availableData)
-				}
-
-				delegate!.subProcessDidConnect()
-				break
+		// Initialise the pty
+		var windowSize = screenSize.windowSize
+		var fds = (primary: Int32(), replica: Int32())
+		if openpty(&fds.primary, &fds.replica, nil, nil, &windowSize) != 0 {
+			// Opening pty failed.
+			let error = errno
+			os_log("openpty() failed: %{public}d", log: log, type: .error, error)
+			throw SubProcessIllegalStateError.openPtyFailed(errno: error)
 		}
+
+		fileDescriptor = fds.primary
+
+		var actions: posix_spawn_file_actions_t!
+		posix_spawn_file_actions_init(&actions)
+		posix_spawn_file_actions_adddup2(&actions, fds.replica, STDIN_FILENO)
+		posix_spawn_file_actions_adddup2(&actions, fds.replica, STDOUT_FILENO)
+		posix_spawn_file_actions_adddup2(&actions, fds.replica, STDERR_FILENO)
+		defer { posix_spawn_file_actions_destroy(&actions) }
+
+		// TODO: At some point, come up with some way to keep track of working directory changes.
+		// When opening a new tab, we can switch straight to the previous tab’s working directory.
+		let argv: [UnsafeMutablePointer<CChar>?]
+		if Self.loginIsShell {
+			argv = Self.loginArgv.cStringArray
+			chdir(initialDirectory ?? Self.homeDirectory)
+		} else {
+			argv = (Self.loginArgv + [initialDirectory ?? Self.homeDirectory, Self.shell]).cStringArray
+		}
+		let envp = (ProcessInfo.processInfo.environment.map { "\($0)=\($1)" } + Self.baseEnvp + [
+			"LANG=\(localeCode)"
+		]).cStringArray
+
+		defer {
+			argv.deallocate()
+			envp.deallocate()
+		}
+
+		var pid = pid_t()
+		let result = ie_posix_spawn(&pid, Self.login, &actions, nil, argv, envp)
+		close(fds.replica)
+		if result != 0 {
+			// Fork failed.
+			close(fds.primary)
+			os_log("posix_spawn() failed: %{public}d", log: log, type: .error, result)
+			throw SubProcessIllegalStateError.forkFailed(errno: result)
+		}
+
+		os_log("Process forked: %{public}d", log: log, type: .debug, pid)
+		childPID = pid
+
+		// Go ahead and plug a file handle into the child tty.
+		readSource = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor!, queue: queue)
+		readSource?.setEventHandler { [weak self] in
+			self?.handleRead()
+		}
+		signalSource = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
+		signalSource?.setEventHandler { [weak self] in
+			try? self?.stop()
+		}
+
+		readSource?.activate()
+		signalSource?.activate()
+		delegate!.subProcessDidConnect()
 	}
 
 	func stop(fromError: Bool = false) throws {
-		if childPID == nil {
+		guard let childPID = childPID else {
 			throw SubProcessIllegalStateError.notStarted
 		}
 
-		kill(childPID!, SIGKILL)
+		// If process is still running, send it SIGKILL and wait for termination
+		if kill(childPID, 0) == 0 {
+			kill(childPID, SIGKILL)
 
-		var stat = Int32() // unused
-		waitpid(childPID!, &stat, WUNTRACED)
+			var status = Int32()
+			waitpid(childPID, &status, WUNTRACED)
 
-		childPID = nil
+			os_log("Process stopped with exit code: %{public}d", log: log, type: .debug, WEXITSTATUS(status))
+		}
+
+		if let fileDescriptor = fileDescriptor {
+			close(fileDescriptor)
+		}
+
+		self.childPID = nil
 		fileDescriptor = nil
-		fileHandle = nil
+		readSource?.cancel()
+		readSource = nil
+		signalSource?.cancel()
+		signalSource = nil
 
 		if !fromError {
 			// nil error means disconnected due to user request
@@ -136,48 +250,50 @@ class SubProcess: NSObject {
 		}
 	}
 
-	private func didReceiveData(_ data: Data) {
-		if data.isEmpty {
+	private func handleRead() {
+		guard let fileDescriptor = fileDescriptor else {
+			return
+		}
+
+		let buffer = UnsafeMutableRawPointer.allocate(byteCount: Int(BUFSIZ), alignment: MemoryLayout<CChar>.alignment)
+		let bytesRead = read(fileDescriptor, buffer, Int(BUFSIZ))
+		switch bytesRead {
+		case -1:
+			let code = errno
+			switch code {
+			case EAGAIN, EINTR:
+				// Ignore, we’ll be called again when the source is ready.
+				break
+
+			default:
+				// Something is wrong.
+				DispatchQueue.main.async {
+					self.delegate?.subProcess(didDisconnectWithError: SubProcessIOError.readFailed(errno: code))
+				}
+			}
+
+		case 0:
 			// Zero-length data is an indicator of EOF. This can happen if the user exits the terminal by
 			// typing `exit` or ^D, or if there’s a catastrophic failure (e.g. /bin/login is broken).
-			try? self.stop(fromError: true)
-		}
+			try? stop(fromError: false)
 
-		DispatchQueue.main.async {
-			// Forward to the delegate.
-			if data.isEmpty {
-				self.delegate?.subProcess(didDisconnectWithError: SubProcessIOError.readFailed)
-			} else {
-				self.delegate?.subProcess(didReceiveData: data)
+		default:
+			// Read from output and notify delegate.
+			let bytes = buffer.bindMemory(to: UTF8Char.self, capacity: bytesRead)
+			let data = Array(UnsafeBufferPointer(start: bytes, count: bytesRead))
+			delegate?.subProcess(didReceiveData: data)
+		}
+		buffer.deallocate()
+	}
+
+	func write(data: [UTF8Char]) {
+		queue.async {
+			guard let fileDescriptor = self.fileDescriptor else {
+				return
 			}
-		}
-	}
-
-	private func attemptStartProcess(path: String, arguments: UnsafePointer<UnsafeMutablePointer<Int8>?>, environment: UnsafePointer<UnsafeMutablePointer<Int8>?>) -> Int {
-		let fileManager = FileManager.default
-
-		if !fileManager.fileExists(atPath: path) {
-			return -1
-		}
-
-		// Notably, we don't test group or other bits so this still might not always
-		// notice if the binary is not executable by us.
-		if !fileManager.isExecutableFile(atPath: path) {
-			return -1
-		}
-
-		if execve(path, arguments, environment) == -1 {
-			os_log("%{public}@: exec failed: %{public}d: %{public}s", type: .error, path, errno, strerror(errno))
-			return -1
-		}
-
-		// execve never returns if successful
-		return 0
-	}
-
-	func write(data: Data) {
-		if fileDescriptor != nil {
-			fileHandle!.write(data)
+			_ = data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
+				Darwin.write(fileDescriptor, buffer.baseAddress!, buffer.count)
+			}
 		}
 	}
 
@@ -187,11 +303,19 @@ class SubProcess: NSObject {
 		// instance, a phone set to Simplified Chinese but a region of Australia will only have the
 		// language zh_AU… which isn’t a thing. But gettext only has languages in country pairs, no
 		// safe generic fallbacks exist, like zh-Hans in this case.
-		for language in Locale.preferredLanguages {
+		var languages = Locale.preferredLanguages
+		let preferredLocale = Preferences.shared.preferredLocale
+		if preferredLocale != "",
+			 Locale(identifier: preferredLocale).languageCode != nil {
+			languages.insert(preferredLocale, at: 0)
+		}
+
+		for language in languages {
 			let locale = Locale(identifier: language)
-			if let languageCode = locale.languageCode, let regionCode = locale.regionCode {
+			if let languageCode = locale.languageCode,
+				 let regionCode = locale.regionCode {
 				let identifier = "\(languageCode)_\(regionCode).UTF-8"
-				let url = URL(fileURLWithPath: "/usr/share/locale").appendingPathComponent(identifier)
+				let url = URL(fileURLWithPath: "/usr/share/locale")/identifier
 				if (try? url.checkResourceIsReachable()) == true {
 					return identifier
 				}
@@ -200,14 +324,24 @@ class SubProcess: NSObject {
 		return "en_US.UTF-8"
 	}
 
-	deinit {
-		if childPID != nil {
-			os_log("Illegal state - SubProcess deallocated while still running", type: .error)
+	private func updateWindowSize() {
+		guard let fileDescriptor = fileDescriptor else {
+			return
 		}
 
-		childPID = nil
-		fileDescriptor = nil
-		fileHandle = nil
+		var windowSize = screenSize.windowSize
+		if ioctl(fileDescriptor, TIOCSWINSZ, &windowSize) == -1 {
+			let error = errno
+			os_log("Setting screen size failed: %{public}d", log: log, type: .error, error)
+		}
+	}
+
+	deinit {
+		if childPID != nil {
+			os_log("Illegal state - SubProcess deallocated while still running", log: log, type: .error)
+		}
+
+		try? stop(fromError: true)
 	}
 
 }

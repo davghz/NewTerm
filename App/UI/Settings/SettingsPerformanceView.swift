@@ -1,0 +1,109 @@
+//
+//  SettingsPerformanceView.swift
+//  NewTerm (iOS)
+//
+//  Created by Adam Demasi on 16/9/21.
+//
+
+import SwiftUI
+import SwiftUIX
+
+struct SettingsPerformanceView: View {
+
+	private struct RefreshRate: Hashable {
+		var rate: Int
+		var name: String
+	}
+
+	private let refreshRates = [
+		RefreshRate(rate:  15, name: "Power Saver"),
+		RefreshRate(rate:  30, name: "Balanced"),
+		RefreshRate(rate:  60, name: "Performance"),
+		RefreshRate(rate: 120, name: "Speed Demon")
+	].filter { item in item.rate <= UIScreen.main.maximumFramesPerSecond }
+
+	@ObservedObject var preferences = Preferences.shared
+
+	private var batteryImageName: String {
+		let device = UIDevice.current
+		device.isBatteryMonitoringEnabled = true
+		let percent = device.batteryLevel
+		let state = device.batteryState
+		device.isBatteryMonitoringEnabled = false
+		if state != .unknown {
+			if percent < 0.2 {
+				return "battery.0"
+			} else if percent < 0.4 {
+				return "battery.25"
+			} else if #available(iOS 15, *) {
+				if percent < 0.6 {
+					return "battery.50"
+				} else if percent < 0.8 {
+					return "battery.75"
+				}
+			}
+		}
+		return "battery.100"
+	}
+
+	var body: some View {
+		let list = ForEach(refreshRates, id: \.rate) { item in
+			Text("\(item.rate) fps: \(String.localize(item.name))")
+				.font(.body.monospacedDigit())
+		}
+
+			return PreferencesList {
+				PreferencesGroup(header: UIDevice.current.isPortable
+													? AnyView(HStack {
+														Image(systemName: "bolt.fill").imageScale(.medium)
+														Text("On AC Power")
+													})
+													: AnyView(Text("Refresh Rate")),
+												 footer: UIDevice.current.isPortable
+													? AnyView(EmptyView())
+												: AnyView(Text("The Performance setting is recommended."))) {
+				PreferencesPicker(selection: preferences.$refreshRateOnAC,
+													label: EmptyView()) {
+					list
+				}
+			}
+
+				if UIDevice.current.isPortable {
+					PreferencesGroup(header: HStack {
+						Image(systemName: batteryImageName).imageScale(.medium)
+						Text("On Battery")
+					},
+													 footer: Text("A lower refresh rate improves \(UIDevice.current.deviceModel) battery life, but may cause the terminal display to feel sluggish.\nThe Performance setting is recommended.")
+														.fixedSize(horizontal: false, vertical: true)) {
+							PreferencesPicker(selection: preferences.$refreshRateOnBattery,
+															label: EmptyView()) {
+							list
+							}
+						}
+
+					PreferencesGroup(footer: Text("Preserve battery life by switching to Power Saver when Low Power Mode is enabled.")) {
+						Toggle("Reduce Performance in Low Power Mode",
+									 isOn: preferences.$reduceRefreshRateInLPM)
+					}
+				}
+			}
+		.navigationBarTitle("Performance")
+	}
+
+}
+
+struct SettingsPerformanceView_Previews: PreviewProvider {
+	static var previews: some View {
+		NavigationView {
+			SettingsPerformanceView()
+		}
+		.previewDevice("iPhone 12 Pro")
+		.previewDisplayName("60 Hz device")
+
+		NavigationView {
+			SettingsPerformanceView()
+		}
+		.previewDevice("iPhone 13 Pro")
+		.previewDisplayName("120 Hz device")
+	}
+}
