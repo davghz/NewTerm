@@ -92,10 +92,16 @@ extension TerminalController {
 				let tempURL = FileManager.default.temporaryDirectory/"downloads"/UUID().uuidString
 				try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true, attributes: [:])
 				let url = tempURL/basename
-				try? file.write(to: url, options: .completeFileProtection)
 
 				DispatchQueue.main.async {
-					self.delegate?.saveFile(url: url)
+					self.delegate?.fileDownloadDidStart(filename: basename)
+				}
+				DispatchQueue.global(qos: .userInitiated).async {
+					try? file.write(to: url, options: .completeFileProtection)
+					DispatchQueue.main.async {
+						self.delegate?.fileDownloadDidFinish()
+						self.delegate?.saveFile(url: url)
+					}
 				}
 			}
 
@@ -128,23 +134,73 @@ extension TerminalController {
 	}
 
 	public func uploadFile(url: URL) {
-		// TODO: Tar + gzip up the file(s)!
 		terminalQueue.async {
-			guard let data = try? Data(contentsOf: url) else {
-				self.cancelUploadRequest()
-				return
+			var isDir: ObjCBool = false
+			FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+
+			let data: Data
+			if isDir.boolValue {
+				// Directory: compress to tar+gzip using /usr/bin/tar (available on jailbroken iOS).
+				guard let tgzData = Self.createTarGz(from: url) else {
+					self.cancelUploadRequest()
+					return
+				}
+				data = tgzData
+			} else {
+				guard let fileData = try? Data(contentsOf: url) else {
+					self.cancelUploadRequest()
+					return
+				}
+				data = fileData
 			}
 
-			// First, respond with ok to confirm we’re about to send a payload.
+			// Respond with ok to confirm we’re about to send a payload.
 			self.write(Self.preFileUploadMarker)
-
-			// Now, we need to base64 the contents of this file.
+			// Base64-encode and send.
 			let encodedData = data.base64EncodedData(options: [.lineLength76Characters, .endLineWithCarriageReturn])
 			self.write(encodedData)
-
-			// Finally, send two ending returns to indicate end of file.
+			// Two ending returns indicate end of file.
 			self.write(Self.postFileUploadMarker)
 		}
+	}
+
+	private static func createTarGz(from url: URL) -> Data? {
+		let tempDir = FileManager.default.temporaryDirectory
+			.appendingPathComponent("newterm-upload-\(UUID().uuidString)")
+		let outputURL = tempDir.appendingPathComponent("upload.tar.gz")
+		do {
+			try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+		} catch {
+			return nil
+		}
+		defer { try? FileManager.default.removeItem(at: tempDir) }
+
+		let tarPath = "/usr/bin/tar"
+		guard FileManager.default.fileExists(atPath: tarPath) else {
+			os_log("tar not found at /usr/bin/tar", log: iTermLog, type: .error)
+			return nil
+		}
+
+		// Use posix_spawn (available on iOS) to invoke tar.
+		// argv: tar -czf <output> -C <parentDir> <dirName>
+		let parentPath = url.deletingLastPathComponent().path
+		let argv = ["tar", "-czf", outputURL.path, "-C", parentPath, url.lastPathComponent].cStringArray
+		defer { argv.deallocate() }
+
+		var pid = pid_t()
+		let spawnResult = posix_spawn(&pid, tarPath, nil, nil, argv, nil)
+		guard spawnResult == 0 else {
+			os_log("posix_spawn tar failed: %{public}d", log: iTermLog, type: .error, spawnResult)
+			return nil
+		}
+
+		var status = Int32()
+		waitpid(pid, &status, 0)
+		guard WEXITSTATUS(status) == 0 else {
+			os_log("tar exited with status %d", log: iTermLog, type: .error, WEXITSTATUS(status))
+			return nil
+		}
+		return try? Data(contentsOf: outputURL)
 	}
 
 	public func cancelUploadRequest() {

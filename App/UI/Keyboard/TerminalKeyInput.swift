@@ -238,9 +238,37 @@ class TerminalKeyInput: TextInputBase {
 	}
 
 	override func paste(_ sender: Any?) {
-		if let string = UIPasteboard.general.string {
+		guard let string = UIPasteboard.general.string else { return }
+
+		let lineCount = string.components(separatedBy: .newlines).filter { !$0.isEmpty }.count
+		guard lineCount > 1 && Preferences.shared.confirmMultiLinePaste else {
 			terminalInputDelegate!.receiveKeyboardInput(data: string.utf8Array)
+			return
 		}
+
+		// Walk the responder chain to find a view controller to present from.
+		var responder: UIResponder? = self
+		while let r = responder {
+			if let vc = r as? UIViewController {
+				let preview = string.count > 300 ? String(string.prefix(300)) + "…" : string
+				let alert = UIAlertController(
+					title: String(format: .localize("PASTE_LINES_TITLE", comment: "Alert title asking to confirm pasting multiple lines. %ld is the line count."), lineCount),
+					message: preview,
+					preferredStyle: .alert
+				)
+				alert.addAction(UIAlertAction(title: .localize("PASTE_LINES_CONFIRM", comment: "Confirm paste button."),
+																			style: .default) { [weak self] _ in
+					self?.terminalInputDelegate?.receiveKeyboardInput(data: string.utf8Array)
+				})
+				alert.addAction(UIAlertAction(title: .cancel, style: .cancel))
+				vc.present(alert, animated: true)
+				return
+			}
+			responder = r.next
+		}
+
+		// No view controller found — paste directly.
+		terminalInputDelegate!.receiveKeyboardInput(data: string.utf8Array)
 	}
 
 	// MARK: - Hardware keyboard

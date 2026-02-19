@@ -32,20 +32,44 @@ public struct FontMetrics: Hashable {
 
 	public var boundingBox: CGSize { CGSize(width: width, height: height) }
 
+	/// Load only the font files needed for the currently selected font. Called once at startup.
 	public static func loadFonts() {
-		// Runtime load all fonts we’re interested in.
-		// TODO: This should only load the fonts the user wants.
-		guard let listing = try? FileManager.default.contentsOfDirectory(at: Bundle.main.resourceURL!,
-																																		 includingPropertiesForKeys: nil,
-																																		 options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]) else {
-			return
+		let currentFontName = UserDefaults.standard.string(forKey: "fontName") ?? "SF Mono"
+		if let font = AppFont.predefined[currentFontName] {
+			loadFonts(for: font)
 		}
-		let fonts = listing.filter { item in item.pathExtension == "ttf" || item.pathExtension == "otf" }
-		for font in fonts {
-			var cfErrorWrapper: Unmanaged<CFError>? = nil
-			CTFontManagerRegisterFontsForURL(font as CFURL, .process, &cfErrorWrapper)
-			if let cfError = cfErrorWrapper?.takeUnretainedValue() {
-				logError("Error loading font \(font.lastPathComponent): \(String(describing: cfError))")
+	}
+
+	/// Load font files on-demand for the given AppFont, skipping ones already registered.
+	public static func loadFonts(for font: AppFont) {
+		// System monospace font needs no file loading.
+		if font.systemMonospaceFont ?? false { return }
+
+		let psNames = [font.regular, font.bold, font.italic, font.boldItalic, font.light, font.lightItalic]
+			.compactMap { $0 }
+
+		// Fast path: all variants already registered.
+		if psNames.allSatisfy({ UIFont(name: $0, size: 12) != nil }) { return }
+
+		guard let listing = try? FileManager.default.contentsOfDirectory(
+			at: Bundle.main.resourceURL!,
+			includingPropertiesForKeys: nil,
+			options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]
+		) else { return }
+
+		// Match font files whose stem matches a PostScript name in this font.
+		let fontURLs = listing.filter { url in
+			let ext = url.pathExtension.lowercased()
+			guard ext == "ttf" || ext == "otf" else { return false }
+			let stem = url.deletingPathExtension().lastPathComponent
+			return psNames.contains { $0.caseInsensitiveCompare(stem) == .orderedSame }
+		}
+
+		for url in fontURLs {
+			var cfError: Unmanaged<CFError>?
+			CTFontManagerRegisterFontsForURL(url as CFURL, .process, &cfError)
+			if let error = cfError?.takeUnretainedValue() {
+				logError("Error loading font \(url.lastPathComponent): \(error)")
 			}
 		}
 	}

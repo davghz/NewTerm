@@ -453,6 +453,14 @@ extension TerminalSessionViewController: TerminalControllerDelegate {
 		#endif
 	}
 
+	func fileDownloadDidStart(filename: String) {
+		hudState.downloadingFileName = filename
+	}
+
+	func fileDownloadDidFinish() {
+		hudState.downloadingFileName = nil
+	}
+
 	func saveFile(url: URL) {
 		let viewController: UIDocumentPickerViewController
 		if #available(iOS 14.0, *) {

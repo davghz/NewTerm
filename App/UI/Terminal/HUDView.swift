@@ -7,32 +7,60 @@
 
 import SwiftUI
 import SwiftUIX
+import UIKit
+
+private struct SpinnerView: UIViewRepresentable {
+	func makeUIView(context: Context) -> UIActivityIndicatorView {
+		let v = UIActivityIndicatorView(style: .medium)
+		v.startAnimating()
+		return v
+	}
+	func updateUIView(_ uiView: UIActivityIndicatorView, context: Context) {}
+}
 
 class HUDViewState: ObservableObject {
 	@Published var isVisible = false
+	/// Non-nil while a file download is in progress. Value is the filename.
+	@Published var downloadingFileName: String? = nil
 }
 
 struct HUDView: View {
 	@EnvironmentObject private var state: HUDViewState
 
 	var body: some View {
+		let isDownloading = state.downloadingFileName != nil
 		VisualEffectBlurView(blurStyle: .systemMaterial,
 												 vibrancyStyle: .label) {
-			Image(systemName: .bell)
-				.font(.system(size: 25, weight: .medium))
-				.imageScale(.large)
-				.foregroundColor(.label)
-			}
-				.frame(width: 54, height: 54)
-				.cornerRadius(16, style: .continuous)
-				.visible(state.isVisible, animation: state.isVisible ? nil : .linear(duration: 0.3))
-				.onReceive(state.$isVisible) { isVisible in
-					if isVisible {
-						Timer.scheduledTimer(withTimeInterval: 0.75, repeats: false) { _ in
-							self.state.isVisible = false
-						}
+			if isDownloading {
+				VStack(spacing: 6) {
+					SpinnerView()
+					if let name = state.downloadingFileName {
+						Text(name)
+							.font(.system(size: 10, weight: .medium))
+							.lineLimit(1)
+							.truncationMode(.middle)
+							.frame(maxWidth: 90)
+					}
 				}
+				.foregroundColor(.label)
+			} else {
+				Image(systemName: .bell)
+					.font(.system(size: 25, weight: .medium))
+					.imageScale(.large)
+					.foregroundColor(.label)
 			}
+		}
+			.frame(width: isDownloading ? 110 : 54, height: 54)
+			.cornerRadius(16, style: .continuous)
+			.visible(state.isVisible || isDownloading,
+						   animation: (state.isVisible || isDownloading) ? nil : .linear(duration: 0.3))
+			.onReceive(state.$isVisible) { isVisible in
+				if isVisible {
+					Timer.scheduledTimer(withTimeInterval: 0.75, repeats: false) { _ in
+						self.state.isVisible = false
+					}
+			}
+		}
 	}
 }
 

@@ -91,6 +91,13 @@ struct SettingsView: View {
 													asStepper: true)
 			}
 
+			PreferencesGroup(header: Text("Editing"),
+										 footer: Text("Paste Warning shows a confirmation before pasting text that contains multiple lines. Copy on Select copies text immediately when you finish a selection.")) {
+				Toggle("Paste Warning", isOn: preferences.$confirmMultiLinePaste)
+				Toggle("Copy on Select", isOn: preferences.$copyOnSelect)
+				Toggle("Follow System Text Size", isOn: preferences.$followSystemTextSize)
+			}
+
 			PreferencesGroup(header: Text("Bell"),
 											 footer: Text("When a terminal application needs to notify you of something, it rings the bell.")) {
 				Toggle("Make beep sound", isOn: preferences.$bellSound)

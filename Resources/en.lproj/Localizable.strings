@@ -78,5 +78,13 @@ You may need to review startup scripts or reinstall core packages to fix this is
 	<!-- Settings option to use the operating system’s locale. %@ is the user’s operating system language. -->
 	<key>LOCALE_SYSTEM</key>
 	<string>System Language: %@</string>
+
+	<!-- Alert title asking the user to confirm pasting multiple lines. %ld is the line count. -->
+	<key>PASTE_LINES_TITLE</key>
+	<string>Paste %ld Lines?</string>
+
+	<!-- Confirm button on the multi-line paste alert. -->
+	<key>PASTE_LINES_CONFIRM</key>
+	<string>Paste</string>
 </dict>
 </plist>

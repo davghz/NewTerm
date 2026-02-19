@@ -103,6 +103,19 @@ public class Preferences: NSObject, ObservableObject {
 
 		fontMetricsChanged()
 		colorMapChanged()
+
+		NotificationCenter.default.addObserver(
+			self,
+			selector: #selector(self.contentSizeCategoryDidChange),
+			name: UIContentSizeCategory.didChangeNotification,
+			object: nil
+		)
+	}
+
+	@objc private func contentSizeCategoryDidChange() {
+		if followSystemTextSize {
+			fontMetricsChanged()
+		}
 	}
 
 	@AppStorage("fontName")
@@ -173,6 +186,28 @@ public class Preferences: NSObject, ObservableObject {
 		willSet { objectWillChange.send() }
 	}
 
+	/// When true, keyboard input is broadcast to every open terminal session simultaneously.
+	@AppStorage("broadcastInput")
+	public var broadcastInput: Bool = false {
+		willSet { objectWillChange.send() }
+	}
+
+	@AppStorage("confirmMultiLinePaste")
+	public var confirmMultiLinePaste: Bool = true {
+		willSet { objectWillChange.send() }
+	}
+
+	@AppStorage("copyOnSelect")
+	public var copyOnSelect: Bool = false {
+		willSet { objectWillChange.send() }
+	}
+
+	@AppStorage("followSystemTextSize")
+	public var followSystemTextSize: Bool = false {
+		willSet { objectWillChange.send() }
+		didSet { fontMetricsChanged() }
+	}
+
 	@AppStorage("bellHUD")
 	public var bellHUD: Bool = true {
 		willSet { objectWillChange.send() }
@@ -218,6 +253,22 @@ public class Preferences: NSObject, ObservableObject {
 		willSet { objectWillChange.send() }
 	}
 
+	/// Extra environment variables injected at shell launch, stored as JSON-encoded [String:String].
+	@AppStorage("extraEnvironmentJSON")
+	private var extraEnvironmentJSON: String = "{}" {
+		willSet { objectWillChange.send() }
+	}
+
+	public var extraEnvironment: [String: String] {
+		get {
+			(try? JSONDecoder().decode([String: String].self,
+																from: extraEnvironmentJSON.data(using: .utf8) ?? Data())) ?? [:]
+		}
+		set {
+			extraEnvironmentJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
+		}
+	}
+
 	@AppStorage("lastVersion")
 	public var lastVersion: Int = 0 {
 		willSet { objectWillChange.send() }
@@ -225,12 +276,95 @@ public class Preferences: NSObject, ObservableObject {
 
 	public var userInterfaceStyle: UIUserInterfaceStyle { colorMap.userInterfaceStyle }
 
+	/// Timestamp of the last successful iCloud sync (pull).
+	@AppStorage("iCloudLastSyncDate")
+	public var iCloudLastSyncDate: Double = 0 {
+		willSet { objectWillChange.send() }
+	}
+
+	// MARK: - iCloud Sync
+
+	/// Keys synced to iCloud KV store. Excludes device-specific prefs (refresh rate, etc.).
+	private static let iCloudSyncedKeys: [String] = [
+		"fontName", "fontSizePhone", "fontSizePad", "fontSizeMac",
+		"themeName",
+		"keyboardArrowsStyle", "keyboardTrackpadSensitivity",
+		"confirmMultiLinePaste", "copyOnSelect",
+		"bellHUD", "bellVibrate", "bellSound",
+		"preferredLocale"
+	]
+
+	public func startICloudSync() {
+		guard preferencesSyncService == .icloud else { return }
+		NotificationCenter.default.addObserver(
+			self,
+			selector: #selector(self.iCloudStoreDidChange(_:)),
+			name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+			object: NSUbiquitousKeyValueStore.default
+		)
+		// Pull remote values on startup.
+		NSUbiquitousKeyValueStore.default.synchronize()
+		applyICloudValues()
+	}
+
+	/// Push all synced prefs to iCloud KV store.
+	public func pushToICloud() {
+		guard preferencesSyncService == .icloud else { return }
+		let store = NSUbiquitousKeyValueStore.default
+		for key in Self.iCloudSyncedKeys {
+			if let value = UserDefaults.standard.object(forKey: key) {
+				store.set(value, forKey: key)
+			}
+		}
+		store.synchronize()
+	}
+
+	@objc private func iCloudStoreDidChange(_ notification: Notification) {
+		applyICloudValues()
+	}
+
+	/// Pull values from iCloud KV store into UserDefaults, then refresh state.
+	private func applyICloudValues() {
+		let store = NSUbiquitousKeyValueStore.default
+		var changed = false
+		for key in Self.iCloudSyncedKeys {
+			if let remote = store.object(forKey: key) {
+				let local = UserDefaults.standard.object(forKey: key)
+				// Only apply if different to avoid spurious KVO/objectWillChange noise.
+				if (local as? AnyHashable) != (remote as? AnyHashable) {
+					UserDefaults.standard.set(remote, forKey: key)
+					changed = true
+				}
+			}
+		}
+		if changed {
+			DispatchQueue.main.async {
+				self.iCloudLastSyncDate = Date().timeIntervalSinceReferenceDate
+				self.fontMetricsChanged()
+				self.colorMapChanged()
+				self.objectWillChange.send()
+				NotificationCenter.default.post(name: Preferences.didChangeNotification, object: nil)
+			}
+		}
+	}
+
 	// MARK: - Handlers
 
 	private func fontMetricsChanged() {
 		let font = AppFont.predefined[fontName] ?? AppFont()
+		FontMetrics.loadFonts(for: font)
 		objectWillChange.send()
-		fontMetrics = FontMetrics(font: font, fontSize: CGFloat(fontSize))
+		var resolvedSize = CGFloat(fontSize)
+		if followSystemTextSize {
+			// Scale the user's chosen base size by the current Dynamic Type ratio.
+			// UIFontMetrics.default scales relative to the Large (default) category.
+			let baseFont = UIFont.systemFont(ofSize: resolvedSize)
+			let scaled = UIFontMetrics.default.scaledValue(for: resolvedSize,
+																										 compatibleWith: UITraitCollection(preferredContentSizeCategory: UIApplication.shared.preferredContentSizeCategory))
+			resolvedSize = min(max(scaled, 10), 28)
+			_ = baseFont // suppress unused warning
+		}
+		fontMetrics = FontMetrics(font: font, fontSize: resolvedSize)
 	}
 
 	private func colorMapChanged() {

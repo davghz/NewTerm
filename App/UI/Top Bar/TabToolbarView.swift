@@ -76,6 +76,8 @@ struct TabToolbarView: View {
 		}
 	}
 
+	@ObservedObject private var preferences = Preferences.shared
+
 	private var buttons: some View {
 		HStack(spacing: 0) {
 				Button(action: { state.delegate?.openPasswordManager() },
@@ -83,6 +85,18 @@ struct TabToolbarView: View {
 					.squareFrame(sideLength: Self.height)
 					.padding(.horizontal, 3)
 					.accessibility(label: Text("Password Manager"))
+
+				// Broadcast button — only visible when multiple sessions are open.
+				if state.terminals.count > 1 {
+					Button(action: { preferences.broadcastInput.toggle() },
+								 label: {
+						Image(systemName: preferences.broadcastInput ? "dot.radiowaves.left.and.right" : "dot.radiowaves.right")
+							.foregroundColor(preferences.broadcastInput ? .orange : .accentColor)
+					})
+						.squareFrame(sideLength: Self.height)
+						.padding(.horizontal, 3)
+						.accessibility(label: Text(preferences.broadcastInput ? "Broadcast Input On" : "Broadcast Input Off"))
+				}
 
 				Button(action: { state.delegate?.openSettings() },
 							 label: { Image(systemName: "gear") })

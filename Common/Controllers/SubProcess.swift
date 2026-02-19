@@ -179,9 +179,10 @@ class SubProcess {
 		} else {
 			argv = (Self.loginArgv + [initialDirectory ?? Self.homeDirectory, Self.shell]).cStringArray
 		}
+		let userEnv = Preferences.shared.extraEnvironment.map { "\($0)=\($1)" }
 		let envp = (ProcessInfo.processInfo.environment.map { "\($0)=\($1)" } + Self.baseEnvp + [
 			"LANG=\(localeCode)"
-		]).cStringArray
+		] + userEnv).cStringArray
 
 		defer {
 			argv.deallocate()

@@ -19,6 +19,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 		FontMetrics.loadFonts()
 		_ = Preferences.shared
+		Preferences.shared.startICloudSync()
+
+		// Push local prefs to iCloud whenever any preference changes.
+		NotificationCenter.default.addObserver(forName: Preferences.didChangeNotification,
+																					 object: nil,
+																					 queue: .main) { _ in
+			Preferences.shared.pushToICloud()
+		}
 
 		UpdateCheckManager.check(updateAvailableCompletion: { response in
 			if let scene = application.connectedScenes.first(where: { scene in scene.delegate is TerminalSceneDelegate }) {

@@ -17,10 +17,17 @@ public protocol TerminalControllerDelegate: AnyObject {
 	func currentFileDidChange(_ url: URL?, inWorkingDirectory workingDirectoryURL: URL?)
 
 	func saveFile(url: URL)
+	func fileDownloadDidStart(filename: String)
+	func fileDownloadDidFinish()
 	func fileUploadRequested()
 
 	func close()
 	func didReceiveError(error: Error)
+}
+
+public extension Notification.Name {
+	/// Posted when broadcast input mode is active. UserInfo key "data": [UTF8Char].
+	static let terminalBroadcastInput = Notification.Name("ws.hbang.newterm3.terminalBroadcastInput")
 }
 
 public class TerminalController {
@@ -85,6 +92,7 @@ public class TerminalController {
 		stringSupplier.terminal = terminal
 
 		NotificationCenter.default.addObserver(self, selector: #selector(self.preferencesUpdated), name: Preferences.didChangeNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.handleBroadcastInput(_:)), name: .terminalBroadcastInput, object: nil)
 		preferencesUpdated()
 
 		startUpdateTimer(fps: refreshRate)
@@ -412,8 +420,24 @@ extension TerminalController: TerminalInputProtocol {
 	public var applicationCursor: Bool { terminal?.applicationCursor ?? false }
 
 	public func receiveKeyboardInput(data: [UTF8Char]) {
-		// Forward the data from the keyboard directly to the subprocess
+		// Forward the data from the keyboard directly to the subprocess.
 		subProcess!.write(data: data)
+
+		// If broadcast mode is on, fan the input out to all other sessions.
+		if Preferences.shared.broadcastInput {
+			NotificationCenter.default.post(
+				name: .terminalBroadcastInput,
+				object: self,
+				userInfo: ["data": data]
+			)
+		}
+	}
+
+	@objc private func handleBroadcastInput(_ notification: Notification) {
+		// Don't echo back to the originating session.
+		guard notification.object as? TerminalController !== self,
+					let data = notification.userInfo?["data"] as? [UTF8Char] else { return }
+		subProcess?.write(data: data)
 	}
 
 }

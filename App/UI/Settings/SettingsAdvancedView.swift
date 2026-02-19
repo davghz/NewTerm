@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import NewTermCommon
 
 struct SettingsAdvancedView: View {
 
@@ -46,6 +47,15 @@ struct SettingsAdvancedView: View {
 
 	@ObservedObject var preferences = Preferences.shared
 
+	private var iCloudSyncStatusText: String {
+		guard preferences.preferencesSyncService == .icloud else { return "Off" }
+		guard preferences.iCloudLastSyncDate > 0 else { return "On — not yet synced" }
+		let date = Date(timeIntervalSinceReferenceDate: preferences.iCloudLastSyncDate)
+		let formatter = RelativeDateTimeFormatter()
+		formatter.unitsStyle = .full
+		return "On — synced \(formatter.localizedString(for: date, relativeTo: Date()))"
+	}
+
 	var body: some View {
 		let systemLocale = self.systemLocale
 		let list = ForEach(locales) { item in
@@ -62,6 +72,27 @@ struct SettingsAdvancedView: View {
 											 label: { Text("Performance") })
 			}
 			#endif
+
+			PreferencesGroup {
+				NavigationLink(destination: SettingsEnvironmentView(),
+											 label: { Text("Environment Variables") })
+			}
+
+			PreferencesGroup(header: Text("Sync"),
+											 footer: Text("When iCloud sync is on, your font, theme, keyboard, and bell settings sync across devices signed into the same iCloud account.")) {
+				KeyValueView(title: Text("iCloud Sync"),
+										 value: Text(iCloudSyncStatusText))
+				if preferences.preferencesSyncService != .icloud {
+					Button("Enable iCloud Sync") {
+						preferences.preferencesSyncService = .icloud
+						Preferences.shared.startICloudSync()
+					}
+				} else {
+					Button("Disable iCloud Sync") {
+						preferences.preferencesSyncService = .none
+					}
+				}
+			}
 
 			PreferencesGroup(header: Text("Locale"),
 											 footer: Text("NewTerm will ask terminal programs to use this locale. Not all programs support this. This will not apply to currently open tabs, and may be overridden by shell startup scripts.")) {
