@@ -34,6 +34,7 @@ struct TerminalView: View {
 								.id(i)
 						}
 					}
+						.frame(maxWidth: .infinity, alignment: .leading)
 						.padding(.vertical, Self.verticalSpacing)
 						.padding(.horizontal, Self.horizontalSpacing)
 						.background(Color(state.colorMap.background))
@@ -57,9 +58,13 @@ struct TerminalView: View {
 				ScrollView(.vertical, showsIndicators: true) {
 					VStack(alignment: .leading, spacing: 0) {
 						ForEach(Array(zip(state.lines, state.lines.indices)), id: \.1) { line, _ in
-							line.drawingGroup(opaque: true)
+							// iOS 13: per-line drawingGroup can cache stale layer positions during
+							// keyboard accessory height transitions ("more"/"fn"), causing invisible
+							// output on first paint and horizontal drift after relayout.
+							line
 						}
 					}
+						.frame(maxWidth: .infinity, alignment: .leading)
 						.padding(.vertical, Self.verticalSpacing)
 						.padding(.horizontal, Self.horizontalSpacing)
 						.background(Color(state.colorMap.background))

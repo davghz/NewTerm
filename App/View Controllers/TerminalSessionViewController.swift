@@ -30,6 +30,7 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 	private var terminalController = TerminalController()
 	private var keyInput = TerminalKeyInput(frame: .zero)
 	private var textView: TerminalHostingView!
+	private weak var terminalScrollView: UIScrollView?
 	private var textViewTapGestureRecognizer: UITapGestureRecognizer!
 
 	private var state = TerminalState()
@@ -43,6 +44,7 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 
 	private var lastAutomaticScrollOffset = CGPoint.zero
 	private var invertScrollToTop = false
+	private var hasPinnedInitialTerminalPosition = false
 
 	private var isPickingFileForUpload = false
 
@@ -120,6 +122,12 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 		}
 
 		NotificationCenter.default.addObserver(self, selector: #selector(self.preferencesUpdated), name: Preferences.didChangeNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardToolbarLayoutDidChange(_:)), name: .terminalKeyboardToolbarLayoutDidChange, object: nil)
 	}
 
 	override func viewWillAppear(_ animated: Bool) {
@@ -143,6 +151,8 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 		}
 
 		initialCommand = nil
+		scheduleScreenSizeUpdate()
+		pinTerminalViewport(forceBottom: true)
 	}
 
 	override func viewWillDisappear(_ animated: Bool) {
@@ -161,6 +171,7 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 	override func viewWillLayoutSubviews() {
 		super.viewWillLayoutSubviews()
 		updateScreenSize()
+		pinTerminalViewport(forceBottom: !hasPinnedInitialTerminalPosition)
 	}
 
 	override func viewSafeAreaInsetsDidChange() {
@@ -192,8 +203,11 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 			return
 		}
 
-		// Determine the screen size based on the font size
-		var layoutSize = textView.safeAreaLayoutGuide.layoutFrame.size
+		// Determine the screen size based on the font size. Using the view bounds avoids iOS 13
+		// safe-area-origin glitches during keyboard accessory row toggles.
+		var layoutSize = textView.bounds.size
+		let safeAreaInsets = textView.safeAreaInsets
+		layoutSize.height -= (safeAreaInsets.top + safeAreaInsets.bottom)
 		layoutSize.width -= TerminalView.horizontalSpacing * 2
 		layoutSize.height -= TerminalView.verticalSpacing * 2
 
@@ -207,13 +221,110 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 			fatalError("Failed to get glyph size")
 		}
 
-		let newSize = ScreenSize(cols: UInt16(layoutSize.width / glyphSize.width),
-														 rows: UInt16(layoutSize.height / glyphSize.height.rounded(.up)),
+		// iOS 13 keyboard/inputAccessory transitions can briefly report tiny layout sizes
+		// (for example ~1 row). Ignore those transient values so we don't corrupt the
+		// PTY's initial terminal geometry and overlap the first prompt/login lines.
+		if layoutSize.width < glyphSize.width * 20 || layoutSize.height < glyphSize.height * 5 {
+			return
+		}
+
+		let newSize = ScreenSize(cols: max(1, UInt16(layoutSize.width / glyphSize.width)),
+														 rows: max(1, UInt16(layoutSize.height / glyphSize.height.rounded(.up))),
 														 cellSize: glyphSize)
 		if screenSize != newSize {
 			screenSize = newSize
 			delegate?.terminal(viewController: self, screenSizeDidChange: newSize)
 		}
+	}
+
+	@objc private func keyboardFrameDidChange(_ notification: Notification) {
+		scheduleScreenSizeUpdate()
+	}
+
+	@objc private func keyboardToolbarLayoutDidChange(_ notification: Notification) {
+		scheduleScreenSizeUpdate()
+	}
+
+	private func scheduleScreenSizeUpdate() {
+		updateScreenSize()
+		pinTerminalViewport(forceBottom: !hasPinnedInitialTerminalPosition)
+
+		// Input accessory relayout on iOS 13 can lag one runloop; recalc shortly after.
+		DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+			self?.updateScreenSize()
+			self?.pinTerminalViewport()
+		}
+		DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+			self?.updateScreenSize()
+			self?.pinTerminalViewport()
+		}
+		DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+			self?.updateScreenSize()
+			self?.pinTerminalViewport()
+		}
+		DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+			self?.updateScreenSize()
+			self?.pinTerminalViewport()
+		}
+	}
+
+	private func findTerminalScrollView(in view: UIView) -> UIScrollView? {
+		if let scrollView = view as? UIScrollView {
+			return scrollView
+		}
+		for child in view.subviews {
+			if let scrollView = findTerminalScrollView(in: child) {
+				return scrollView
+			}
+		}
+		return nil
+	}
+
+	private func configuredTerminalScrollView() -> UIScrollView? {
+		if let scrollView = terminalScrollView {
+			return scrollView
+		}
+
+		guard let scrollView = findTerminalScrollView(in: textView) else {
+			return nil
+		}
+
+		scrollView.showsHorizontalScrollIndicator = false
+		scrollView.alwaysBounceHorizontal = false
+		scrollView.isDirectionalLockEnabled = true
+		scrollView.contentInsetAdjustmentBehavior = .never
+		terminalScrollView = scrollView
+		return scrollView
+	}
+
+	private func pinTerminalViewport(forceBottom: Bool = false) {
+		guard let scrollView = configuredTerminalScrollView() else {
+			return
+		}
+
+		let minX = -scrollView.adjustedContentInset.left
+		let maxY = max(-scrollView.adjustedContentInset.top,
+									 scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom)
+		let nearBottomThreshold = max(2, terminalController.fontMetrics.boundingBox.height * 2)
+		let isNearBottom = (maxY - scrollView.contentOffset.y) <= nearBottomThreshold
+		let shouldAutoScrollBottom = forceBottom
+			|| !hasPinnedInitialTerminalPosition
+			|| isNearBottom
+			|| abs(scrollView.contentOffset.y - lastAutomaticScrollOffset.y) <= nearBottomThreshold
+
+		var offset = scrollView.contentOffset
+		offset.x = minX
+		if shouldAutoScrollBottom {
+			offset.y = maxY
+		}
+		offset.x = round(offset.x)
+		offset.y = round(offset.y)
+
+		if abs(scrollView.contentOffset.x - offset.x) > 0.5 || abs(scrollView.contentOffset.y - offset.y) > 0.5 {
+			scrollView.setContentOffset(offset, animated: false)
+		}
+		lastAutomaticScrollOffset = offset
+		hasPinnedInitialTerminalPosition = true
 	}
 
 	@objc func clearTerminal() {
@@ -266,6 +377,9 @@ extension TerminalSessionViewController: TerminalControllerDelegate {
 
 	func refresh(lines: inout [AnyView]) {
 		state.lines = lines
+		DispatchQueue.main.async { [weak self] in
+			self?.pinTerminalViewport(forceBottom: !(self?.hasPinnedInitialTerminalPosition ?? false))
+		}
 	}
 
 	func activateBell() {

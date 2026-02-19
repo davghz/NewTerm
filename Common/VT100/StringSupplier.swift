@@ -68,9 +68,13 @@ open class StringSupplier {
 		// Append the final run
 		views.append(text(buffer, attribute: lastAttribute))
 
-		return AnyView(HStack(alignment: .firstTextBaseline, spacing: 0) {
+		let lineHeight = max(1, ceil(fontMetrics?.boundingBox.height ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular).lineHeight))
+
+		return AnyView(HStack(alignment: .center, spacing: 0) {
 			views.reduce(AnyView(EmptyView()), { $0 + $1 })
-		})
+		}
+			.frame(minHeight: lineHeight, maxHeight: lineHeight, alignment: .leading)
+			.frame(maxWidth: .infinity, alignment: .leading))
 	}
 
 	private func text(_ run: String, attribute: Attribute, isCursor: Bool = false) -> AnyView {
@@ -105,6 +109,7 @@ open class StringSupplier {
 		}
 
 		let width = CGFloat(run.unicodeScalars.reduce(0, { $0 + UnicodeUtil.columnWidth(rune: $1) })) * (fontMetrics?.width ?? 0)
+		let lineHeight = max(1, ceil(fontMetrics?.boundingBox.height ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular).lineHeight))
 
 		return AnyView(
 			Text(run)
@@ -118,8 +123,7 @@ open class StringSupplier {
 				.allowsTightening(false)
 				.lineLimit(1)
 				.background(Color(background ?? .black))
-				.frame(width: width)
-				.fixedSize(horizontal: false, vertical: true)
+				.frame(width: width, height: lineHeight, alignment: .leading)
 		)
 	}
 

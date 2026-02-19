@@ -10,6 +10,10 @@ import UIKit
 import NewTermCommon
 import SwiftUIX
 
+extension Notification.Name {
+	static let terminalKeyboardToolbarLayoutDidChange = Notification.Name("ws.hbang.newterm3.terminalKeyboardToolbarLayoutDidChange")
+}
+
 extension ToolbarKey {
 	var keySequence: [UTF8Char] {
 		switch self {
@@ -428,6 +432,10 @@ extension TerminalKeyInput: KeyboardToolbarViewDelegate {
 			if state.toggledKeys.contains(.fnKeys) {
 				state.toggledKeys.remove(.fnKeys)
 			}
+			NotificationCenter.default.post(name: .terminalKeyboardToolbarLayoutDidChange, object: nil)
+
+		case .fnKeys:
+			NotificationCenter.default.post(name: .terminalKeyboardToolbarLayoutDidChange, object: nil)
 
 		default: break
 		}
