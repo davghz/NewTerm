@@ -34,17 +34,17 @@ struct TerminalView: View {
 								.id(i)
 						}
 					}
-						.padding(.vertical, Self.verticalSpacing)
-						.padding(.horizontal, Self.horizontalSpacing)
-						.background(Color(state.colorMap.background))
-				}
+					.padding(.vertical, Self.verticalSpacing)
+					.padding(.horizontal, Self.horizontalSpacing)
 					.background(Color(state.colorMap.background))
-					.onChange(of: state.lines.indices.last, perform: { _ in
-						scrollView.scrollTo(state.lines.indices.last, anchor: .bottom)
-					})
+				}
+				.background(Color(state.colorMap.background))
+				.onChange(of: state.lines.indices.last, perform: { _ in
+					scrollView.scrollTo(state.lines.indices.last, anchor: .bottom)
+				})
 			}
-				.opacity(state.isSplitViewResizing ? 0.6 : 1)
-				.animation(.linear(duration: 0.1), value: state.isSplitViewResizing)
+			.opacity(state.isSplitViewResizing ? 0.6 : 1)
+			.animation(.linear(duration: 0.1), value: state.isSplitViewResizing)
 
 			if #available(iOS 15, *) {
 				return AnyView(
@@ -53,19 +53,21 @@ struct TerminalView: View {
 			}
 			return AnyView(view)
 		} else {
+			let tailLinePairs = Array(zip(state.lines.suffix(800), state.lines.indices.suffix(800)))
 			return AnyView(
 				ScrollView(.vertical, showsIndicators: true) {
 					VStack(alignment: .leading, spacing: 0) {
-						ForEach(Array(zip(state.lines, state.lines.indices)), id: \.1) { line, _ in
-							line.drawingGroup(opaque: true)
+						ForEach(tailLinePairs, id: \.1) { line, _ in
+							line
+								.drawingGroup(opaque: true)
 						}
 					}
-						.padding(.vertical, Self.verticalSpacing)
-						.padding(.horizontal, Self.horizontalSpacing)
-						.background(Color(state.colorMap.background))
-				}
+					.padding(.vertical, Self.verticalSpacing)
+					.padding(.horizontal, Self.horizontalSpacing)
 					.background(Color(state.colorMap.background))
-					.opacity(state.isSplitViewResizing ? 0.6 : 1)
+				}
+				.background(Color(state.colorMap.background))
+				.opacity(state.isSplitViewResizing ? 0.6 : 1)
 			)
 		}
 	}
