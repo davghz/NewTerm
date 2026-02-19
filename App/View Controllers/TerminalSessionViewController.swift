@@ -45,6 +45,8 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 	private var lastAutomaticScrollOffset = CGPoint.zero
 	private var invertScrollToTop = false
 	private var hasPinnedInitialTerminalPosition = false
+	private var suppressAutoBottomUntil: TimeInterval = 0
+	private var preservedViewportOffsetY: CGFloat?
 
 	private var isPickingFileForUpload = false
 
@@ -238,33 +240,44 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 	}
 
 	@objc private func keyboardFrameDidChange(_ notification: Notification) {
-		scheduleScreenSizeUpdate()
+		markViewportTransition()
+		scheduleScreenSizeUpdate(preserveViewport: true)
 	}
 
 	@objc private func keyboardToolbarLayoutDidChange(_ notification: Notification) {
-		scheduleScreenSizeUpdate()
+		markViewportTransition()
+		scheduleScreenSizeUpdate(preserveViewport: true)
 	}
 
-	private func scheduleScreenSizeUpdate() {
+	private func markViewportTransition() {
+		if let scrollView = configuredTerminalScrollView() {
+			let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+			preservedViewportOffsetY = min(max(0, scrollView.contentOffset.y), maxY)
+		}
+		suppressAutoBottomUntil = Date().timeIntervalSinceReferenceDate + 1.5
+	}
+
+	private func scheduleScreenSizeUpdate(preserveViewport: Bool = false) {
+		let shouldForceBottom = !preserveViewport && !hasPinnedInitialTerminalPosition
 		updateScreenSize()
-		pinTerminalViewport(forceBottom: !hasPinnedInitialTerminalPosition)
+		pinTerminalViewport(forceBottom: shouldForceBottom)
 
 		// Input accessory relayout on iOS 13 can lag one runloop; recalc shortly after.
 		DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
 			self?.updateScreenSize()
-			self?.pinTerminalViewport()
+			self?.pinTerminalViewport(forceBottom: shouldForceBottom)
 		}
 		DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
 			self?.updateScreenSize()
-			self?.pinTerminalViewport()
+			self?.pinTerminalViewport(forceBottom: shouldForceBottom)
 		}
 		DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
 			self?.updateScreenSize()
-			self?.pinTerminalViewport()
+			self?.pinTerminalViewport(forceBottom: shouldForceBottom)
 		}
 		DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
 			self?.updateScreenSize()
-			self?.pinTerminalViewport()
+			self?.pinTerminalViewport(forceBottom: shouldForceBottom)
 		}
 	}
 
@@ -281,9 +294,18 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 	}
 
 	private func configuredTerminalScrollView() -> UIScrollView? {
-		if let scrollView = terminalScrollView {
+		if let scrollView = terminalScrollView,
+			 scrollView.isDescendant(of: textView),
+			 scrollView.bounds.width > 0,
+			 scrollView.bounds.height > 0 {
+			scrollView.showsHorizontalScrollIndicator = false
+			scrollView.alwaysBounceHorizontal = false
+			scrollView.isDirectionalLockEnabled = true
+			scrollView.contentInsetAdjustmentBehavior = .never
+			scrollView.contentInset = .zero
 			return scrollView
 		}
+		terminalScrollView = nil
 
 		guard let scrollView = findTerminalScrollView(in: textView) else {
 			return nil
@@ -293,6 +315,7 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 		scrollView.alwaysBounceHorizontal = false
 		scrollView.isDirectionalLockEnabled = true
 		scrollView.contentInsetAdjustmentBehavior = .never
+		scrollView.contentInset = .zero
 		terminalScrollView = scrollView
 		return scrollView
 	}
@@ -302,20 +325,32 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 			return
 		}
 
-		let minX = -scrollView.adjustedContentInset.left
-		let maxY = max(-scrollView.adjustedContentInset.top,
-									 scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom)
+		let glyphHeight = max(1, terminalController.fontMetrics.boundingBox.height)
+		let minimumStableHeight = glyphHeight * 5
+		if scrollView.bounds.height < minimumStableHeight {
+			return
+		}
+
+		let minX: CGFloat = 0
+		let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
 		let nearBottomThreshold = max(2, terminalController.fontMetrics.boundingBox.height * 2)
 		let isNearBottom = (maxY - scrollView.contentOffset.y) <= nearBottomThreshold
+		let shouldSuppressAutoBottom = !forceBottom
+			&& Date().timeIntervalSinceReferenceDate < suppressAutoBottomUntil
 		let shouldAutoScrollBottom = forceBottom
 			|| !hasPinnedInitialTerminalPosition
-			|| isNearBottom
-			|| abs(scrollView.contentOffset.y - lastAutomaticScrollOffset.y) <= nearBottomThreshold
+			|| (!shouldSuppressAutoBottom && isNearBottom)
 
 		var offset = scrollView.contentOffset
 		offset.x = minX
 		if shouldAutoScrollBottom {
 			offset.y = maxY
+			preservedViewportOffsetY = nil
+		} else if shouldSuppressAutoBottom, let preservedOffsetY = preservedViewportOffsetY {
+			offset.y = min(max(0, preservedOffsetY), maxY)
+		} else {
+			offset.y = min(max(0, offset.y), maxY)
+			preservedViewportOffsetY = nil
 		}
 		offset.x = round(offset.x)
 		offset.y = round(offset.y)
