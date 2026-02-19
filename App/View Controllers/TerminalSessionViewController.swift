@@ -125,10 +125,8 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 
 		NotificationCenter.default.addObserver(self, selector: #selector(self.preferencesUpdated), name: Preferences.didChangeNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardToolbarLayoutDidChange(_:)), name: .terminalKeyboardToolbarLayoutDidChange, object: nil)
 	}
 
@@ -240,19 +238,25 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 	}
 
 	@objc private func keyboardFrameDidChange(_ notification: Notification) {
-		markViewportTransition()
+		let shouldCaptureViewport = notification.name == UIResponder.keyboardWillHideNotification
+			|| notification.name == UIResponder.keyboardWillChangeFrameNotification
+		markViewportTransition(captureViewport: shouldCaptureViewport)
 		scheduleScreenSizeUpdate(preserveViewport: true)
 	}
 
 	@objc private func keyboardToolbarLayoutDidChange(_ notification: Notification) {
-		markViewportTransition()
+		markViewportTransition(captureViewport: true)
 		scheduleScreenSizeUpdate(preserveViewport: true)
 	}
 
-	private func markViewportTransition() {
-		if let scrollView = configuredTerminalScrollView() {
+	private func markViewportTransition(captureViewport: Bool) {
+		if captureViewport, let scrollView = configuredTerminalScrollView() {
 			let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
-			preservedViewportOffsetY = min(max(0, scrollView.contentOffset.y), maxY)
+			let nearBottomThreshold = max(2, terminalController.fontMetrics.boundingBox.height * 2)
+			let isAtBottom = maxY <= 0 || (maxY - scrollView.contentOffset.y) <= nearBottomThreshold
+			// nil = bottom sentinel: "go to maxY after resize, whatever it turns out to be"
+			// non-nil = user is scrolled into scrollback; restore that relative position
+			preservedViewportOffsetY = isAtBottom ? nil : min(max(0, scrollView.contentOffset.y), maxY)
 		}
 		suppressAutoBottomUntil = Date().timeIntervalSinceReferenceDate + 1.5
 	}
@@ -346,8 +350,16 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 		if shouldAutoScrollBottom {
 			offset.y = maxY
 			preservedViewportOffsetY = nil
-		} else if shouldSuppressAutoBottom, let preservedOffsetY = preservedViewportOffsetY {
-			offset.y = min(max(0, preservedOffsetY), maxY)
+		} else if shouldSuppressAutoBottom {
+			if let preservedOffsetY = preservedViewportOffsetY {
+				// User was scrolled into scrollback; restore that position.
+				offset.y = min(max(0, preservedOffsetY), maxY)
+			} else {
+				// Bottom sentinel: user was at the bottom before the transition.
+				// Stay at bottom even though suppression is active — correct for
+				// alternate-screen apps (Codex) where content redraws on resize.
+				offset.y = maxY
+			}
 		} else {
 			offset.y = min(max(0, offset.y), maxY)
 			preservedViewportOffsetY = nil
