@@ -55,6 +55,22 @@
 	<key>CLEAR_TERMINAL</key>
 	<string>清除終端機文字</string>
 
+	<!-- VoiceOver label for launching Codex in the current terminal session. -->
+	<key>LAUNCH_CODEX</key>
+	<string>啟動 Codex</string>
+
+	<!-- Alert title displayed when Codex isn't installed. -->
+	<key>CODEX_NOT_FOUND_TITLE</key>
+	<string>找不到 Codex</string>
+
+	<!-- Alert body displayed when Codex isn't installed. -->
+	<key>CODEX_NOT_FOUND_BODY</key>
+	<string>請先安裝 Codex iOS 套件，才能從 t3rm 直接啟動 Codex。</string>
+
+	<!-- Action title used to open a package manager for Codex installation. -->
+	<key>INSTALL_CODEX</key>
+	<string>安裝 Codex</string>
+
 	<!-- VoiceOver label for the button that reveals the password manager. -->
 	<key>PASSWORD_MANAGER</key>
 	<string>密碼管理員</string>

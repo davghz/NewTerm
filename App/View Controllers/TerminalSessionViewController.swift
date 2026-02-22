@@ -49,6 +49,12 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 	private var preservedViewportOffsetY: CGFloat?
 
 	private var isPickingFileForUpload = false
+	private let codexCandidatePaths = [
+		"/var/mobile/.local/bin/codex",
+		"/usr/local/bin/codex",
+		"/var/jb/usr/local/bin/codex",
+		"/usr/bin/codex"
+	]
 
 	override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
 		super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
@@ -109,6 +115,11 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 															 action: #selector(self.clearTerminal),
 															 input: "k",
 															 modifierFlags: .command))
+		addKeyCommand(UIKeyCommand(title: .localize("LAUNCH_CODEX", comment: "VoiceOver label for launching Codex in the current terminal session."),
+															 image: UIImage(systemName: "chevron.left.slash.chevron.right"),
+															 action: #selector(self.launchCodex),
+															 input: "c",
+															 modifierFlags: [ .command, .alternate ]))
 
 		#if !targetEnvironment(macCatalyst)
 		addKeyCommand(UIKeyCommand(title: .localize("PASSWORD_MANAGER", comment: "VoiceOver label for the password manager button."),
@@ -128,6 +139,7 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardFrameDidChange(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardToolbarLayoutDidChange(_:)), name: .terminalKeyboardToolbarLayoutDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.keyboardRequestedCodexLaunch(_:)), name: .terminalLaunchCodexRequested, object: nil)
 	}
 
 	override func viewWillAppear(_ animated: Bool) {
@@ -376,6 +388,94 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 
 	@objc func clearTerminal() {
 		terminalController.clearTerminal()
+	}
+
+	@objc func launchCodex() {
+		keyInput.becomeFirstResponder()
+
+		guard isCodexAvailable() else {
+			presentCodexNotInstalledAlert()
+			return
+		}
+
+		sendTerminalCommand("codex --no-alt-screen")
+	}
+
+	@objc private func keyboardRequestedCodexLaunch(_ notification: Notification) {
+		guard keyInput.isFirstResponder else {
+			return
+		}
+		launchCodex()
+	}
+
+	private func isCodexAvailable() -> Bool {
+		for path in codexCandidatePaths {
+			if FileManager.default.isExecutableFile(atPath: path) {
+				return true
+			}
+		}
+
+		let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
+		for directory in path.split(separator: ":") {
+			if FileManager.default.isExecutableFile(atPath: "\(directory)/codex") {
+				return true
+			}
+		}
+		return false
+	}
+
+	private func sendTerminalCommand(_ command: String) {
+		guard let bytes = command.data(using: .utf8) else {
+			return
+		}
+		terminalController.write([UTF8Char](bytes) + EscapeSequences.return)
+	}
+
+	private func presentCodexNotInstalledAlert() {
+		let alertController = UIAlertController(
+			title: .localize("CODEX_NOT_FOUND_TITLE", comment: "Alert title displayed when Codex isn't installed."),
+			message: .localize("CODEX_NOT_FOUND_BODY", comment: "Alert body displayed when Codex isn't installed."),
+			preferredStyle: .alert
+		)
+		alertController.addAction(UIAlertAction(title: .localize("INSTALL_CODEX", comment: "Action title used to open a package manager for Codex installation."),
+																					 style: .default,
+																					 handler: { [weak self] _ in
+			self?.openCodexInstallPage()
+		}))
+		alertController.addAction(UIAlertAction(title: .cancel, style: .cancel, handler: nil))
+		present(alertController, animated: true, completion: nil)
+	}
+
+	private func openCodexInstallPage() {
+		let packageURL = URL(string: "sileo://package/com.openai.codex-ios")!
+		if openSensitiveURLIfAvailable(packageURL) {
+			return
+		}
+		UIApplication.shared.open(packageURL, options: [:]) { opened in
+			if !opened, let url = URL(string: "https://github.com/davghz/ios-codex") {
+				UIApplication.shared.open(url, options: [:], completionHandler: nil)
+			}
+		}
+	}
+
+	private func openSensitiveURLIfAvailable(_ url: URL) -> Bool {
+		guard let workspaceClass = NSClassFromString("LSApplicationWorkspace") as? NSObject.Type else {
+			return false
+		}
+		let workspaceClassObject: AnyObject = workspaceClass
+
+		let defaultWorkspaceSelector = NSSelectorFromString("defaultWorkspace")
+		guard workspaceClassObject.responds?(to: defaultWorkspaceSelector) == true,
+					let workspace = workspaceClassObject.perform?(defaultWorkspaceSelector)?.takeUnretainedValue() as? NSObject else {
+			return false
+		}
+
+		let openSelector = NSSelectorFromString("openSensitiveURL:withOptions:")
+		guard workspace.responds(to: openSelector),
+					let result = workspace.perform(openSelector, with: url, with: nil)?.takeUnretainedValue() as? Bool else {
+			return false
+		}
+		return result
 	}
 
 	private func updateIsSplitViewResizing() {

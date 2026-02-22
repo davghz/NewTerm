@@ -12,6 +12,7 @@ import SwiftUIX
 
 extension Notification.Name {
 	static let terminalKeyboardToolbarLayoutDidChange = Notification.Name("ws.hbang.newterm3.terminalKeyboardToolbarLayoutDidChange")
+	static let terminalLaunchCodexRequested = Notification.Name("ws.hbang.newterm3.terminalLaunchCodexRequested")
 }
 
 extension ToolbarKey {
@@ -30,7 +31,7 @@ extension ToolbarKey {
 		case .delete:   return EscapeSequences.delete
 		case .fnKey(let index): return EscapeSequences.fn[index - 1]
 		case .fixedSpace, .variableSpace, .arrows,
-				 .control, .more, .fnKeys:
+				 .control, .more, .codex, .fnKeys:
 			return []
 		}
 	}
@@ -433,6 +434,9 @@ extension TerminalKeyInput: KeyboardToolbarViewDelegate {
 				state.toggledKeys.remove(.fnKeys)
 			}
 			NotificationCenter.default.post(name: .terminalKeyboardToolbarLayoutDidChange, object: nil)
+
+		case .codex:
+			NotificationCenter.default.post(name: .terminalLaunchCodexRequested, object: nil)
 
 		case .fnKeys:
 			NotificationCenter.default.post(name: .terminalKeyboardToolbarLayoutDidChange, object: nil)

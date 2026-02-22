@@ -45,7 +45,7 @@ enum Toolbar: CaseIterable {
 				.variableSpace(id: 0),
 				.pageUp, .pageDown,
 				.variableSpace(id: 1),
-				.delete,
+				.delete, .codex,
 				.variableSpace(id: 2),
 				.fnKeys
 			]
@@ -68,7 +68,7 @@ enum ToolbarKey: Hashable {
 	// Secondary - navigation
 	case home, end, pageUp, pageDown
 	// Secondary - extras
-	case delete, fnKeys
+	case delete, codex, fnKeys
 	// Fn keys
 	case fnKey(index: Int)
 
@@ -131,6 +131,10 @@ enum ToolbarKey: Hashable {
 															 imageName: .deleteRight,
 															 preferredStyle: .icons,
 															 widthRatio: 1)
+		case .codex:    return Key(label: .localize("LAUNCH_CODEX",
+															 comment: "VoiceOver label for launching Codex in the current terminal session."),
+															 glyph: "Codex",
+															 widthRatio: 1.6)
 		case .fnKeys:   return Key(label: .localize("Function Keys"),
 															 glyph: .localize("Fn"),
 															 isToggle: true,
