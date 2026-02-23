@@ -55,22 +55,6 @@ You may need to review startup scripts or reinstall core packages to fix this is
 	<key>CLEAR_TERMINAL</key>
 	<string>Clear Terminal</string>
 
-	<!-- VoiceOver label for launching Codex in the current terminal session. -->
-	<key>LAUNCH_CODEX</key>
-	<string>Launch Codex</string>
-
-	<!-- Alert title displayed when Codex isn't installed. -->
-	<key>CODEX_NOT_FOUND_TITLE</key>
-	<string>Codex Not Found</string>
-
-	<!-- Alert body displayed when Codex isn't installed. -->
-	<key>CODEX_NOT_FOUND_BODY</key>
-	<string>Install the Codex iOS package to launch Codex directly from t3rm.</string>
-
-	<!-- Action title used to open a package manager for Codex installation. -->
-	<key>INSTALL_CODEX</key>
-	<string>Install Codex</string>
-
 	<!-- VoiceOver label for the button that reveals the password manager. -->
 	<key>PASSWORD_MANAGER</key>
 	<string>Password Manager</string>

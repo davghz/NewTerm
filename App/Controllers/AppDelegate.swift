@@ -151,11 +151,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 																		UIKeyCommand(title: .localize("CLEAR_TERMINAL", comment: "VoiceOver label for a button that clears the terminal."),
 																								 action: #selector(TerminalSessionViewController.clearTerminal),
 																								 input: "k",
-																								 modifierFlags: .command),
-																		UIKeyCommand(title: .localize("LAUNCH_CODEX", comment: "VoiceOver label for launching Codex in the current terminal session."),
-																								 action: #selector(TerminalSessionViewController.launchCodex),
-																								 input: "c",
-																								 modifierFlags: [.command, .alternate])
+																								 modifierFlags: .command)
 																	 ]),
 														afterMenu: .standardEdit)
 
@@ -169,11 +165,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 																		UIKeyCommand(title: .localize("CLEAR_TERMINAL", comment: "VoiceOver label for a button that clears the terminal."),
 																								 action: #selector(TerminalSessionViewController.clearTerminal),
 																								 input: "k",
-																								 modifierFlags: .command),
-																		UIKeyCommand(title: .localize("LAUNCH_CODEX", comment: "VoiceOver label for launching Codex in the current terminal session."),
-																								 action: #selector(TerminalSessionViewController.launchCodex),
-																								 input: "c",
-																								 modifierFlags: [.command, .alternate])
+																								 modifierFlags: .command)
 																	 ]),
 														afterMenu: .standardEdit)
 
@@ -182,3 +174,4 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 	}
 
 }
+

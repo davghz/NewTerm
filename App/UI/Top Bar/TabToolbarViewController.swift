@@ -21,7 +21,6 @@ protocol TabToolbarDelegate: AnyObject {
 	func removeTerminal(at index: Int)
 
 	func openSettings()
-	func openCodex()
 	func openPasswordManager()
 }
 
@@ -71,10 +70,6 @@ class TabToolbarViewController: UIViewController {
 
 	@objc private func openSettings() {
 		delegate?.openSettings()
-	}
-
-	@objc private func openCodex() {
-		delegate?.openCodex()
 	}
 
 	@objc private func openPasswordManager() {

@@ -36,7 +36,7 @@ struct TabToolbarView: View {
 			VStack(spacing: 2) {
 				HStack(alignment: .center, spacing: 6) {
 					Color.clear
-						.frame(width: 3 + (Self.height + 6) * 4)
+						.frame(width: 3 + (Self.height + 6) * 3)
 					titleLabel
 					buttons
 				}
@@ -78,13 +78,6 @@ struct TabToolbarView: View {
 
 	private var buttons: some View {
 		HStack(spacing: 0) {
-				Button(action: { state.delegate?.openCodex() },
-							 label: { Image(systemName: "chevron.left.slash.chevron.right") })
-					.squareFrame(sideLength: Self.height)
-					.padding(.horizontal, 3)
-					.accessibility(label: Text(.localize("LAUNCH_CODEX",
-																							 comment: "VoiceOver label for launching Codex in the current terminal session.")))
-
 				Button(action: { state.delegate?.openPasswordManager() },
 							 label: { Image(systemName: "key.fill") })
 					.squareFrame(sideLength: Self.height)

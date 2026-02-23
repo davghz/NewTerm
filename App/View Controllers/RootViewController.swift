@@ -407,10 +407,6 @@ extension RootViewController: TabToolbarDelegate {
 		presentedViewController?.dismiss(animated: true, completion: nil)
 	}
 
-	func openCodex() {
-		UIApplication.shared.sendAction(#selector(TerminalSessionViewController.launchCodex), to: nil, from: self, for: nil)
-	}
-
 	func openPasswordManager() {
 		UIApplication.shared.sendAction(#selector(TerminalSessionViewController.activatePasswordManager), to: nil, from: self, for: nil)
 	}
