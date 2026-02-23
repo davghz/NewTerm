@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-and-release:
     name: Build and Release Beta
-    runs-on: ubuntu-22.04
+    runs-on: macos-12
 
     steps:
       - name: Checkout
@@ -28,10 +28,14 @@ jobs:
       - name: Set up Theos
         run: git clone --recursive --depth=1 "https://github.com/theos/theos.git" ~/theos
 
+      - name: Configure build environment
+        run: |
+          echo "TARGET_CODESIGN_ALLOCATE=$(xcrun --find codesign_allocate)" >> "$GITHUB_ENV"
+
       - name: Build package
         id: package_build
         run: |
-          make package THEOS=~/theos USE_PREBUILT_APP=0 TARGET_CODESIGN_ALLOCATE=""
+          make package THEOS=~/theos USE_PREBUILT_APP=0 TARGET_CODESIGN_ALLOCATE="$TARGET_CODESIGN_ALLOCATE"
           package_path="$(cat .theos/last_package)"
           cp "$package_path" ./packages/com.dav.n3wterm.deb
           echo "package=$package_path" >> "$GITHUB_OUTPUT"
