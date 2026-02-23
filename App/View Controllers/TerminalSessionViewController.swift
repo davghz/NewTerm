@@ -424,9 +424,7 @@ extension TerminalSessionViewController: TerminalControllerDelegate {
 
 	func refresh(lines: inout [AnyView]) {
 		state.lines = lines
-		DispatchQueue.main.async { [weak self] in
-			self?.pinTerminalViewport(forceBottom: !(self?.hasPinnedInitialTerminalPosition ?? false))
-		}
+		pinTerminalViewport(forceBottom: !hasPinnedInitialTerminalPosition)
 	}
 
 	func activateBell() {

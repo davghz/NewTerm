@@ -41,6 +41,8 @@ public class TerminalController {
 	private var subProcessFailureError: Error?
 	private let stringSupplier = StringSupplier()
 	private var lines = [AnyView]()
+	private var lineBaseIndex = 0
+	private var maxRenderedLines = 3000
 
 	private var processLaunchDate: Date?
 	private var updateTimer: CADisplayLink?
@@ -78,8 +80,9 @@ public class TerminalController {
 	internal var shell: String?
 
 	public init() {
+		maxRenderedLines = Self.clampedRenderedLineCount(Preferences.shared.maximumRenderedLines)
 		let options = TerminalOptions(termName: "xterm-256color",
-																	scrollback: 10_000)
+																	scrollback: maxRenderedLines)
 		terminal = Terminal(delegate: self, options: options)
 
 		stringSupplier.terminal = terminal
@@ -104,9 +107,32 @@ public class TerminalController {
 		let preferences = Preferences.shared
 		stringSupplier.colorMap = preferences.colorMap
 		stringSupplier.fontMetrics = preferences.fontMetrics
+		maxRenderedLines = Self.clampedRenderedLineCount(preferences.maximumRenderedLines)
 
 		powerStateChanged()
 		terminal?.refresh(startRow: 0, endRow: terminal?.rows ?? 0)
+	}
+
+	private static func clampedRenderedLineCount(_ value: Int) -> Int {
+		return min(max(value, 500), 20_000)
+	}
+
+	private func trimRenderedLinesIfNeeded(scrollInvariantRows: Int) {
+		let desiredBaseIndex = max(0, scrollInvariantRows - maxRenderedLines)
+		guard desiredBaseIndex > lineBaseIndex else {
+			return
+		}
+
+		let linesToDrop = desiredBaseIndex - lineBaseIndex
+		if linesToDrop >= lines.count {
+			lines.removeAll()
+		} else {
+			lines.removeFirst(linesToDrop)
+		}
+		lineBaseIndex = desiredBaseIndex
+		if lastCursorLocation.y < lineBaseIndex {
+			lastCursorLocation = (-1, -1)
+		}
 	}
 
 	@objc private func powerStateChanged() {
@@ -152,6 +178,7 @@ public class TerminalController {
 		// Start updating again.
 		startUpdateTimer(fps: refreshRate)
 		isTabVisible = true
+		terminal?.refresh(startRow: 0, endRow: terminal?.rows ?? 0)
 	}
 
 	public func terminalWillDisappear() {
@@ -234,19 +261,38 @@ public class TerminalController {
 			terminal.clearUpdateRange()
 
 			let scrollInvariantRows = scrollbackRows + terminal.rows
+			self.trimRenderedLinesIfNeeded(scrollInvariantRows: scrollInvariantRows)
 
-			// Remove lines that no longer exist
-			if self.lines.count > scrollInvariantRows {
-				self.lines.removeSubrange((scrollInvariantRows - 1)...)
+			// Avoid expensive view regeneration while hidden; mark as dirty and redraw on re-show.
+			if !self.isVisible {
+				self.lastCursorLocation = cursorLocation
+				DispatchQueue.main.async {
+					if !self.isDirty {
+						self.isDirty = true
+					}
+				}
+				return
+			}
+
+			// Remove lines that no longer exist.
+			let visibleRowCount = max(0, scrollInvariantRows - self.lineBaseIndex)
+			if self.lines.count > visibleRowCount {
+				self.lines.removeSubrange(visibleRowCount..<self.lines.count)
 			}
 
 			// Add new lines that have been introduced
-			while self.lines.count <= max(updateRange.endY, scrollInvariantRows) {
-				self.lines.append(AnyView(EmptyView()))
+			let targetRow = max(updateRange.endY, scrollInvariantRows - 1)
+			if targetRow >= self.lineBaseIndex {
+				while self.lines.count <= (targetRow - self.lineBaseIndex) {
+					self.lines.append(AnyView(EmptyView()))
+				}
 			}
 
 			// Update lines that changed
-			var linesToUpdate = updateRange == (0, 0) ? Set() : Set(updateRange.startY...updateRange.endY)
+			var linesToUpdate = Set<Int>()
+			if updateRange != (0, 0) {
+				linesToUpdate.formUnion(updateRange.startY...updateRange.endY)
+			}
 			if cursorLocation != self.lastCursorLocation {
 				linesToUpdate.insert(cursorLocation.y)
 				if self.lastCursorLocation.y != -1 && self.lastCursorLocation.y < scrollInvariantRows {
@@ -254,24 +300,28 @@ public class TerminalController {
 				}
 			}
 
-			for i in linesToUpdate {
-				self.lines[i] = self.stringSupplier.attributedString(forScrollInvariantRow: i)
+			for row in linesToUpdate where row >= self.lineBaseIndex {
+				let localRow = row - self.lineBaseIndex
+				guard localRow >= 0 && localRow < self.lines.count else {
+					continue
+				}
+				self.lines[localRow] = self.stringSupplier.attributedString(forScrollInvariantRow: row)
 			}
 
 			self.lastCursorLocation = cursorLocation
 
 			DispatchQueue.main.async {
 				self.delegate?.refresh(lines: &self.lines)
-
-				if !self.isVisible && !self.isDirty {
-					self.isDirty = true
-				}
+				self.isDirty = false
 			}
 		}
 	}
 
 	public func clearTerminal() {
 		terminal?.resetToInitialState()
+		lines.removeAll()
+		lineBaseIndex = 0
+		lastCursorLocation = (-1, -1)
 
 		// To trigger a redraw, update the screen size, then update it back.
 		if let screenSize = screenSize {

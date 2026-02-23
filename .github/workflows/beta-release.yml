@@ -28,10 +28,14 @@ jobs:
       - name: Set up Theos
         run: git clone --recursive --depth=1 "https://github.com/theos/theos.git" ~/theos
 
+      - name: Configure build environment
+        run: |
+          echo "TARGET_CODESIGN_ALLOCATE=$(xcrun --find codesign_allocate)" >> "$GITHUB_ENV"
+
       - name: Build package
         id: package_build
         run: |
-          gmake package THEOS=~/theos
+          gmake package THEOS=~/theos USE_PREBUILT_APP=0 TARGET_CODESIGN_ALLOCATE="$TARGET_CODESIGN_ALLOCATE"
           echo "package=$(cat .theos/last_package)" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact

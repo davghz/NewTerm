@@ -27,11 +27,33 @@ NewTerm 3 is a work in progress, and is not yet considered stable. While we’ve
 This is only an early preview of what we’ve got planned for NewTerm. Stay tuned for further updates!
 
 ## Building
-The Xcode project builds with the latest release of Xcode, once Swift Package Manager dependencies have been downloaded.
 
-The most convenient way to test the app is by building for the “My Mac” target. For debugging iOS-specific functionality, a mostly-functional terminal does work in the Simulator. It will spawn with a weird prompt that says “I have no name!”, as Simulator seems to block access to macOS’s Open Directory user database. However, you should still be able to do everything your logged-in macOS user can do.
+This repo supports two Theos build modes:
 
-To install on a jailbroken device, first [set up Theos](https://git.io/theosinstall). Then, you can run `make do` in the root of the repo.
+1. `USE_PREBUILT_APP=1` (default on-device when `/Applications/t3rm.app` exists)
+2. `USE_PREBUILT_APP=0` (Xcode project compile path)
+
+### On-device packaging without Xcode
+
+Use a prebuilt app bundle and package it with Theos:
+
+```bash
+make package
+```
+
+By default it stages `/Applications/t3rm.app`. You can override this:
+
+```bash
+make package PREBUILT_APP_PATH=/Applications/NewTerm.app
+```
+
+### Full source compile
+
+For full source builds (Swift compile + SPM dependencies), use:
+
+```bash
+make package USE_PREBUILT_APP=0
+```
 
 ## License
 Licensed under the Apache License, version 2.0. Refer to [LICENSE.md](LICENSE.md).

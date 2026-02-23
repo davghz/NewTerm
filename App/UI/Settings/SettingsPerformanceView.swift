@@ -15,12 +15,24 @@ struct SettingsPerformanceView: View {
 		var name: String
 	}
 
+	private struct RenderedLinesOption: Hashable {
+		var count: Int
+		var name: String
+	}
+
 	private let refreshRates = [
 		RefreshRate(rate:  15, name: "Power Saver"),
 		RefreshRate(rate:  30, name: "Balanced"),
 		RefreshRate(rate:  60, name: "Performance"),
 		RefreshRate(rate: 120, name: "Speed Demon")
 	].filter { item in item.rate <= UIScreen.main.maximumFramesPerSecond }
+
+	private let renderedLinesOptions = [
+		RenderedLinesOption(count: 1000,  name: "Low Memory"),
+		RenderedLinesOption(count: 3000,  name: "Balanced"),
+		RenderedLinesOption(count: 5000,  name: "Long History"),
+		RenderedLinesOption(count: 10000, name: "Maximum History")
+	]
 
 	@ObservedObject var preferences = Preferences.shared
 
@@ -84,6 +96,16 @@ struct SettingsPerformanceView: View {
 					PreferencesGroup(footer: Text("Preserve battery life by switching to Power Saver when Low Power Mode is enabled.")) {
 						Toggle("Reduce Performance in Low Power Mode",
 									 isOn: preferences.$reduceRefreshRateInLPM)
+					}
+				}
+
+				PreferencesGroup(footer: Text("Higher history values use more memory and can reduce responsiveness during long-running sessions. Changes apply to new tabs.")) {
+					PreferencesPicker(selection: preferences.$maximumRenderedLines,
+														label: Text("History Buffer")) {
+						ForEach(renderedLinesOptions, id: \.count) { item in
+							Text("\(item.count) lines: \(String.localize(item.name))")
+								.font(.body.monospacedDigit())
+						}
 					}
 				}
 			}

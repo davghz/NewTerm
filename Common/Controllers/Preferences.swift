@@ -203,6 +203,11 @@ public class Preferences: NSObject, ObservableObject {
 		willSet { objectWillChange.send() }
 	}
 
+	@AppStorage("maximumRenderedLines")
+	public var maximumRenderedLines: Int = 3000 {
+		willSet { objectWillChange.send() }
+	}
+
 	@AppStorageEnum("preferencesSyncService")
 	public var preferencesSyncService: PreferencesSyncService = .icloud {
 		willSet { objectWillChange.send() }

@@ -25,25 +25,19 @@ struct TerminalView: View {
 
 	var body: some View {
 		if #available(iOS 14.0, *) {
-			let view = ScrollViewReader { scrollView in
+			let view =
 				ScrollView(.vertical, showsIndicators: true) {
 					LazyVStack(alignment: .leading, spacing: 0) {
 						ForEach(Array(zip(state.lines, state.lines.indices)), id: \.1) { line, i in
-							line
-								.drawingGroup(opaque: true)
-								.id(i)
+							line.id(i)
 						}
 					}
-						.frame(maxWidth: .infinity, alignment: .leading)
-						.padding(.vertical, Self.verticalSpacing)
-						.padding(.horizontal, Self.horizontalSpacing)
-						.background(Color(state.colorMap.background))
-				}
+					.frame(maxWidth: .infinity, alignment: .leading)
+					.padding(.vertical, Self.verticalSpacing)
+					.padding(.horizontal, Self.horizontalSpacing)
 					.background(Color(state.colorMap.background))
-					.onChange(of: state.lines.indices.last, perform: { _ in
-						scrollView.scrollTo(state.lines.indices.last, anchor: .bottom)
-					})
-			}
+				}
+				.background(Color(state.colorMap.background))
 				.opacity(state.isSplitViewResizing ? 0.6 : 1)
 				.animation(.linear(duration: 0.1), value: state.isSplitViewResizing)
 
