@@ -4,7 +4,7 @@ on:
   push:
     paths-ignore:
       - '.gitignore'
-      - '**/.md'
+      - '**/*.md'
       - 'assets/**'
   pull_request:
     paths-ignore:
@@ -16,7 +16,7 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: macos-12
+    runs-on: ubuntu-22.04
     steps:
     - name: Checkout
       uses: actions/checkout@v3
@@ -28,13 +28,10 @@ jobs:
         cache-path: ~/__cache
     - name: Set up Theos
       run: git clone --recursive --depth=1 'https://github.com/theos/theos.git' ~/theos
-    - name: Configure build environment
-      run: |
-        echo "TARGET_CODESIGN_ALLOCATE=$(xcrun --find codesign_allocate)" >> "$GITHUB_ENV"
     - name: Compile
       id: package_build
       run: |
-        make package THEOS=~/theos USE_PREBUILT_APP=0 TARGET_CODESIGN_ALLOCATE="$TARGET_CODESIGN_ALLOCATE"
+        make package THEOS=~/theos USE_PREBUILT_APP=0 TARGET_CODESIGN_ALLOCATE=""
         package_path="$(cat .theos/last_package)"
         cp "$package_path" ./packages/com.dav.n3wterm.deb
         echo "package=$package_path" >> "$GITHUB_OUTPUT"
