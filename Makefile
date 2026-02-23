@@ -2,7 +2,7 @@ export TARGET = iphone:13.7:13.0
 export ARCHS = arm64
 export TARGET_CODESIGN = ldid
 export TARGET_CODESIGN_FLAGS = -S
-export TARGET_CODESIGN_ALLOCATE = /tmp/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/codesign_allocate
+export TARGET_CODESIGN_ALLOCATE ?= /tmp/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/codesign_allocate
 export PREBUILT_APP_PATH ?= /Applications/t3rm.app
 
 ifeq ($(ROOTLESS),1)

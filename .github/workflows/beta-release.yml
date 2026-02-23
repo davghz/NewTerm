@@ -35,14 +35,17 @@ jobs:
       - name: Build package
         id: package_build
         run: |
-          gmake package THEOS=~/theos USE_PREBUILT_APP=0 TARGET_CODESIGN_ALLOCATE="$TARGET_CODESIGN_ALLOCATE"
-          echo "package=$(cat .theos/last_package)" >> "$GITHUB_OUTPUT"
+          make package THEOS=~/theos USE_PREBUILT_APP=0 TARGET_CODESIGN_ALLOCATE="$TARGET_CODESIGN_ALLOCATE"
+          package_path="$(cat .theos/last_package)"
+          cp "$package_path" ./packages/com.dav.n3wterm.deb
+          echo "package=$package_path" >> "$GITHUB_OUTPUT"
+          echo "release_package=./packages/com.dav.n3wterm.deb" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NewTerm3-beta
-          path: ${{ steps.package_build.outputs.package }}
+          name: com.dav.n3wterm-beta
+          path: ${{ steps.package_build.outputs.release_package }}
 
       - name: Publish beta release
         uses: softprops/action-gh-release@v2
@@ -50,4 +53,4 @@ jobs:
           prerelease: true
           generate_release_notes: true
           files: |
-            ${{ steps.package_build.outputs.package }}
+            ${{ steps.package_build.outputs.release_package }}

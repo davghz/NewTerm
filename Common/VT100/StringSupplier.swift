@@ -108,7 +108,7 @@ open class StringSupplier {
 			font = attribute.style.contains(.italic) ? fontMetrics?.italicFont : fontMetrics?.regularFont
 		}
 
-		let width = CGFloat(run.unicodeScalars.reduce(0, { $0 + UnicodeUtil.columnWidth(rune: $1) })) * (fontMetrics?.width ?? 0)
+		let width = ceil(CGFloat(run.unicodeScalars.reduce(0, { $0 + UnicodeUtil.columnWidth(rune: $1) })) * (fontMetrics?.width ?? 0))
 		let lineHeight = max(1, ceil(fontMetrics?.boundingBox.height ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular).lineHeight))
 
 		return AnyView(
@@ -122,6 +122,8 @@ open class StringSupplier {
 				// View attributes
 				.allowsTightening(false)
 				.lineLimit(1)
+				.truncationMode(.clip)
+				.fixedSize(horizontal: true, vertical: false)
 				.background(Color(background ?? .black))
 				.frame(width: width, height: lineHeight, alignment: .leading)
 		)
