@@ -129,8 +129,10 @@ struct SettingsView: View {
 			return NavigationView {
 				styledList
 					.navigationBarTitle("SETTINGS", displayMode: .large)
-					.navigationBarItems(trailing: Button(action: { self.dismiss() },
-																							 label: { Text(verbatim: .done).bold() }))
+					// An explicit role selects SwiftUI's initializer and avoids SwiftUIX's recursive overload.
+					.navigationBarItems(trailing: Button(role: nil, action: dismiss) {
+						Text(verbatim: .done).bold()
+					})
 		}
 			.navigationViewStyle(StackNavigationViewStyle())
 	}
