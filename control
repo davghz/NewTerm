@@ -2,7 +2,7 @@ Package: com.davghz.t3rm
 Name: t3rm
 Depends: firmware (>= 15.1.1), zsh | bash | fish, coreutils, ncurses, system-cmds
 Recommends: gettext-localizations, iterm2-shell-integration, zsh-autosuggestions, zsh-syntax-highlighting
-Version: 0.1.0~alpha1
+Version: 0.1.0~alpha2
 Architecture: iphoneos-arm
 Description: Native terminal for rootless iOS 15, based on NewTerm
 Maintainer: davghz <davghz@users.noreply.github.com>
