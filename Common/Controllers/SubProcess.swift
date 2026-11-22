@@ -226,6 +226,8 @@ class SubProcess {
 
 		// Go ahead and plug a file handle into the child tty.
 		readSource = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor!, queue: queue)
+		let reader = fds.primary
+		readSource?.setCancelHandler { close(reader) }
 		readSource?.setEventHandler { [weak self] in
 			self?.handleRead()
 		}
@@ -239,7 +241,13 @@ class SubProcess {
 		delegate!.subProcessDidConnect()
 	}
 
-	func stop(fromError: Bool = false) throws {
+	func closeTerminal() {
+		queue.sync {
+			try? stop(notifyDelegate: false)
+		}
+	}
+
+	private func stop(notifyDelegate: Bool = true) throws {
 		guard let childPID = childPID else {
 			throw SubProcessIllegalStateError.notStarted
 		}
@@ -254,9 +262,6 @@ class SubProcess {
 			os_log("Process stopped with exit code: %{public}d", log: log, type: .debug, WEXITSTATUS(status))
 		}
 
-		if let fileDescriptor = fileDescriptor {
-			close(fileDescriptor)
-		}
 
 		self.childPID = nil
 		writeChannel?.close(flags: .stop)
@@ -267,7 +272,7 @@ class SubProcess {
 		signalSource?.cancel()
 		signalSource = nil
 
-		if !fromError {
+		if notifyDelegate {
 			// nil error means disconnected due to user request
 			DispatchQueue.main.async {
 				self.delegate?.subProcess(didDisconnectWithError: nil)
@@ -300,7 +305,7 @@ class SubProcess {
 		case 0:
 			// Zero-length data is an indicator of EOF. This can happen if the user exits the terminal by
 			// typing `exit` or ^D, or if there’s a catastrophic failure (e.g. /bin/login is broken).
-			try? stop(fromError: false)
+			try? stop()
 
 		default:
 			// Read from output and notify delegate.
@@ -367,7 +372,7 @@ class SubProcess {
 			os_log("Illegal state - SubProcess deallocated while still running", log: log, type: .error)
 		}
 
-		try? stop(fromError: true)
+		try? stop(notifyDelegate: false)
 	}
 
 }

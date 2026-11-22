@@ -189,7 +189,7 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 		updateScreenSize()
 	}
 
-	override func removeFromParent() {
+	override func closeTerminal() {
 		if hasStarted {
 			do {
 				try terminalController.stopSubProcess()
@@ -198,7 +198,7 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 			}
 		}
 
-		super.removeFromParent()
+		super.closeTerminal()
 	}
 
 	// MARK: - Screen
@@ -402,7 +402,15 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 	// MARK: - Gestures
 
 	@objc private func handleTextViewTap(_ gestureRecognizer: UITapGestureRecognizer) {
-		if gestureRecognizer.state == .ended && !keyInput.isFirstResponder {
+		guard gestureRecognizer.state == .ended else { return }
+		if terminalController.reportsMouse, let scrollView = configuredTerminalScrollView() {
+			let point = gestureRecognizer.location(in: scrollView)
+			let cell = terminalController.fontMetrics.boundingBox
+			let column = floor((point.x - TerminalView.horizontalSpacing) / max(1, cell.width))
+			let row = floor((point.y - TerminalView.verticalSpacing) / max(1, ceil(cell.height)))
+			terminalController.clickMouse(column: Int(column), bufferRow: Int(row))
+		}
+		if !keyInput.isFirstResponder {
 			keyInput.becomeFirstResponder()
 			delegate?.terminalDidBecomeActive(viewController: self)
 		}
@@ -559,7 +567,7 @@ extension TerminalSessionViewController: UIGestureRecognizerDelegate {
 		// This allows the tap-to-activate-keyboard gesture to work without conflicting with UIKit’s
 		// internal text view/scroll view gestures… as much as we can avoid conflicting, at least.
 		return gestureRecognizer == textViewTapGestureRecognizer
-			&& (!(otherGestureRecognizer is UITapGestureRecognizer) || keyInput.isFirstResponder)
+			&& (!(otherGestureRecognizer is UITapGestureRecognizer) || (keyInput.isFirstResponder && !terminalController.reportsMouse))
 	}
 }
 

@@ -20,6 +20,12 @@ class BaseTerminalSplitViewControllerChild: UIViewController {
 	var screenSize: ScreenSize?
 	var isSplitViewResizing = false
 	var showsTitleView = false
+
+	func closeTerminal() {
+		willMove(toParent: nil)
+		view.removeFromSuperview()
+		removeFromParent()
+	}
 }
 
 class TerminalSplitViewController: BaseTerminalSplitViewControllerChild {
@@ -182,12 +188,20 @@ class TerminalSplitViewController: BaseTerminalSplitViewControllerChild {
 		})
 	}
 
+	override func closeTerminal() {
+		for child in viewControllers {
+			child.closeTerminal()
+		}
+		super.closeTerminal()
+	}
+
 	func remove(viewController: UIViewController) {
 		guard let viewController = viewController as? BaseTerminalSplitViewControllerChild,
 					let index = viewControllers.firstIndex(where: { item in viewController == item }) else {
 			return
 		}
 
+		viewController.closeTerminal()
 		viewControllers.remove(at: index)
 
 		if viewControllers.isEmpty {
@@ -198,7 +212,6 @@ class TerminalSplitViewController: BaseTerminalSplitViewControllerChild {
 				rootViewController.removeTerminal(viewController: self)
 			}
 		}
-		updateViewControllers()
 	}
 
 	private func updateConstraints() {

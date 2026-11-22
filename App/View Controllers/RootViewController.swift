@@ -147,7 +147,6 @@ class RootViewController: UIViewController {
 		newTerminal.initialCommand = initialCommand
 
 		addChild(splitViewController)
-		splitViewController.willMove(toParent: self)
 		if let tabToolbar = tabToolbar {
 			view.insertSubview(splitViewController.view, belowSubview: tabToolbar.view)
 		} else {
@@ -155,22 +154,15 @@ class RootViewController: UIViewController {
 		}
 		splitViewController.didMove(toParent: self)
 
-		if index == terminals.count {
-			splitViewController.viewControllers = [newTerminal]
-			terminals.append(splitViewController)
-			tabToolbar?.didAddTab(at: index)
-		} else {
-			if let axis = axis {
-				let firstViewController = terminals[index]
-				let secondViewController = newTerminal
-				splitViewController.axis = axis
-				splitViewController.viewControllers = [firstViewController, secondViewController]
-			} else {
-				splitViewController.viewControllers = [newTerminal]
-			}
-
+		if let axis = axis {
+			splitViewController.axis = axis
+			splitViewController.viewControllers = [terminals[index], newTerminal]
 			terminals[index] = splitViewController
 			tabToolbar?.tabDidUpdate(at: index)
+		} else {
+			splitViewController.viewControllers = [newTerminal]
+			terminals.insert(splitViewController, at: index)
+			tabToolbar?.didAddTab(at: index)
 		}
 	}
 
@@ -180,22 +172,27 @@ class RootViewController: UIViewController {
 			return
 		}
 
-		viewController.removeFromParent()
-		viewController.view.removeFromSuperview()
-
+		let wasSelected = selectedTabIndex == index
+		if wasSelected {
+			viewController.beginAppearanceTransition(false, animated: false)
+			viewController.endAppearanceTransition()
+		}
+		viewController.closeTerminal()
 		terminals.remove(at: index)
 		tabToolbar?.didRemoveTab(at: index)
 
-		// If this was the last tab, close the window (or make a new tab if not supported). Otherwise
-		// select the closest tab we have available.
-		if terminals.count == 0 {
+		if terminals.isEmpty {
+			selectedTabIndex = 0
 			if UIApplication.shared.supportsMultipleScenes {
 				closeCurrentWindow()
 			} else {
 				addTerminal()
 			}
+		} else if wasSelected {
+			showTerminal(at: min(index, terminals.count - 1), replacing: nil)
 		} else {
-			selectTerminal(at: index >= terminals.count ? index - 1 : index)
+			if index < selectedTabIndex { selectedTabIndex -= 1 }
+			tabToolbar?.didSelectTab(at: selectedTabIndex)
 		}
 	}
 
@@ -208,21 +205,22 @@ class RootViewController: UIViewController {
 	}
 
 	@IBAction func removeAllTerminals() {
-		for terminalViewController in terminals {
-			terminalViewController.removeFromParent()
-			terminalViewController.view.removeFromSuperview()
+		for (index, terminal) in terminals.enumerated().reversed() {
+			terminal.closeTerminal()
+			tabToolbar?.didRemoveTab(at: index)
 		}
-
 		terminals.removeAll()
+		selectedTabIndex = 0
 		addTerminal()
 	}
 
 	func selectTerminal(at index: Int) {
-		let oldSelectedTabIndex = selectedTabIndex < terminals.count ? selectedTabIndex : nil
+		guard terminals.indices.contains(index) else { return }
+		let previous = terminals.indices.contains(selectedTabIndex) ? terminals[selectedTabIndex] : nil
+		showTerminal(at: index, replacing: previous)
+	}
 
-		// If the previous index is now out of bounds, just use nil as our previous. The tab and view
-		// controller were removed so we don’t need to do anything
-		let previousViewController = oldSelectedTabIndex == nil ? nil : terminals[oldSelectedTabIndex!]
+	private func showTerminal(at index: Int, replacing previousViewController: BaseTerminalSplitViewControllerChild?) {
 		let newViewController = terminals[index]
 
 		selectedTabIndex = index

@@ -187,7 +187,7 @@ public class TerminalController {
 	}
 
 	public func stopSubProcess() throws {
-		try subProcess!.stop()
+		subProcess?.closeTerminal()
 		stopUpdatingTimer()
 	}
 
@@ -427,6 +427,19 @@ extension TerminalController: TerminalInputProtocol {
 
 	public var reportsMouse: Bool {
 		terminalQueue.sync { terminal.map { $0.mouseMode != .off } ?? false }
+	}
+
+	public func clickMouse(column: Int, bufferRow: Int) {
+		terminalQueue.async {
+			guard let terminal = self.terminal, terminal.mouseMode != .off else { return }
+			let row = bufferRow - terminal.getTopVisibleRow()
+			guard (0..<min(terminal.cols, 223)).contains(column),
+				  (0..<min(terminal.rows, 223)).contains(row) else { return }
+			terminal.sendEvent(buttonFlags: 0, x: column, y: row)
+			if terminal.mouseMode != .x10 {
+				terminal.sendEvent(buttonFlags: 3, x: column, y: row)
+			}
+		}
 	}
 
 	public func scrollMouse(up: Bool, steps: Int, column: Int, row: Int) {
