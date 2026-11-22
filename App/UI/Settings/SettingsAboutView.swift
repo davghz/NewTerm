@@ -25,10 +25,7 @@ struct SettingsAboutView: View {
 	}
 
 	var body: some View {
-		var supportURL = URLComponents(string: "mailto:support@hbang.ws")!
-		supportURL.queryItems = [
-			URLQueryItem(name: "subject", value: "NewTerm \(version) – Support")
-		]
+		let supportURL = URL(string: "https://github.com/davghz/NewTerm/issues")!
 
 		let guts = ScrollView {
 			VStack(spacing: 15) {
@@ -36,7 +33,7 @@ struct SettingsAboutView: View {
 						.frame(height: 200)
 						.edgesIgnoringSafeArea(.all)
 
-				Text("NewTerm \(version)")
+				Text("t3rm \(version)")
 					.padding(EdgeInsets(top: 15, leading: 15, bottom: 15, trailing: 15))
 					.font(.system(size: 16, weight: .semibold))
 
@@ -46,7 +43,7 @@ struct SettingsAboutView: View {
 						.padding(EdgeInsets(top: 5, leading: 15, bottom: 5, trailing: 15))
 						.font(.system(size: 14))
 
-						Button(role: nil, action: { openURL(supportURL.url!) },
+						Button(role: nil, action: { openURL(supportURL) },
 									 label: {
 							HStack {
 								IconView(icon: Image(systemName: "envelope").resizable(),
@@ -78,14 +75,14 @@ struct SettingsAboutView: View {
 							HStack {
 								IconView(icon: Image(systemName: "square.and.arrow.up").resizable(),
 												 backgroundColor: .systemIndigo)
-								Text("Share NewTerm")
+								Text("Share t3rm")
 							}
 						})
 							.buttonStyle(GroupedButtonStyle())
 						.activityView(isPresented: $showingShare,
 													activityItems: [
-														String.localize("Check out NewTerm, a modern, super fast terminal app for iOS and macOS! 🧑‍💻"),
-														URL(string: "https://newterm.app/")!
+														String.localize("t3rm for rootless iOS 15"),
+														URL(string: "https://github.com/davghz/NewTerm")!
 													])
 				}
 

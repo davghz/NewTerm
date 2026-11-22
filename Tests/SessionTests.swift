@@ -27,7 +27,7 @@ final class SessionTests: XCTestCase {
 
 		let login = try ShellLaunchConfiguration.login(initialDirectory: directory.path, preferredLocale: "en_US")
 		XCTAssertEqual(login.environment["TERM"], "xterm-256color")
-		XCTAssertEqual(login.environment["TERM_PROGRAM"], "NewTerm")
+		XCTAssertEqual(login.environment["TERM_PROGRAM"], "t3rm")
 
 		let command = "test -t 0 && test -t 1 && test -t 2 && stty size > result"
 		let probe = ShellLaunchConfiguration(executable: login.executable, arguments: login.arguments + ["-c", command], environment: login.environment)

@@ -54,7 +54,7 @@ class LogoHeaderView: UIView {
 		stackView.spacing = 20
 		containerView.addSubview(stackView)
 
-		let titleString = "NewTerm"
+		let titleString = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "t3rm"
 		nameAttributedString = NSAttributedString(string: titleString,
 																							attributes: [
 																								.font: nameLabel.font!

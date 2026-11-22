@@ -11,7 +11,7 @@ import QuickLook
 import os.log
 
 extension TerminalController {
-	private static let iTermLog = OSLog(subsystem: "ws.hbang.Terminal", category: "TerminalController")
+	private static let iTermLog = OSLog(subsystem: "com.davghz.t3rm", category: "TerminalController")
 
 	public func iTermContent(source: Terminal, _ content: String) {
 		let scanner = Scanner(string: content)

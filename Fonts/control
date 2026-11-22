@@ -1,14 +1,10 @@
-Package: ws.hbang.newtermfonts
-Name: NewTerm Fonts Add-on
-Depends: ws.hbang.newterm2 (>= 2.5)
-Breaks: ws.hbang.newterm2 (<< 2.5)
+Package: com.davghz.t3rm.fonts
+Name: t3rm Fonts Add-on
+Depends: com.davghz.t3rm
 Version: 1.0
-Architecture: iphoneos-arm
-Description: Optional extra fonts for NewTerm
+Architecture: all
+Description: Optional extra fonts for t3rm
 Maintainer: HASHBANG Productions <support@hbang.ws>
 Author: HASHBANG Productions <support@hbang.ws>
 Section: Terminal Support
-Icon: https://chariz.com/cdn/icon/newterm-fonts/icon@3x.png
-Depiction: https://chariz.com/get/newterm-fonts
-Support: https://hashbang.productions/support/
-Tag: compatible_min::ios10.0
+Tag: compatible_min::ios15.1.1

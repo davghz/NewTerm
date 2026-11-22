@@ -225,7 +225,7 @@
 		CF71BC8722BB6DBB00AFB1E1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		CF71BCC222BB727B00AFB1E1 /* libcurses.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libcurses.tbd; path = usr/lib/libcurses.tbd; sourceTree = SDKROOT; };
 		CF71BCEF22BB8AA800AFB1E1 /* FontMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontMetrics.swift; sourceTree = "<group>"; };
-		CFBB966122B546DA00585BE6 /* NewTerm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NewTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CFBB966122B546DA00585BE6 /* t3rm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = t3rm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CFBB968322B5481B00585BE6 /* TabToolbarViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TabToolbarViewController.swift; sourceTree = "<group>"; };
 		CFBB968522B5481B00585BE6 /* TerminalKeyInput.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TerminalKeyInput.swift; sourceTree = "<group>"; };
 		CFBB968722B5481B00585BE6 /* KeyboardToolbarInputView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = KeyboardToolbarInputView.swift; sourceTree = "<group>"; };
@@ -349,7 +349,7 @@
 				CFBB96EF22B548D700585BE6 /* Resources */,
 				4EBBCB162889051B002EAE00 /* NewTermLoginHelper */,
 				CFBB975B22B54AA600585BE6 /* Frameworks */,
-				CFBB966122B546DA00585BE6 /* NewTerm.app */,
+				CFBB966122B546DA00585BE6 /* t3rm.app */,
 				CF71BC8422BB6DBA00AFB1E1 /* NewTermCommon.framework */,
 				4EBBCB152889051B002EAE00 /* NewTermLoginHelper */,
 			);
@@ -655,7 +655,7 @@
 				4E4CB11F27E9B33C001F07B6 /* SwiftUIX */,
 			);
 			productName = "NewTerm (macOS)";
-			productReference = CFBB966122B546DA00585BE6 /* NewTerm.app */;
+			productReference = CFBB966122B546DA00585BE6 /* t3rm.app */;
 			productType = "com.apple.product-type.application";
 		};
 		914B1A2F2200000000000040 /* NewTermSessionTests */ = {
@@ -1237,7 +1237,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = N2LN9ZT493;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -1278,11 +1278,11 @@
 					"$(PROJECT_DIR)/Vendor",
 					"$(PROJECT_DIR)/Vendor/libiosexec",
 				);
-				MARKETING_VERSION = 3.0b1;
+				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = ws.hbang.Terminal;
-				PRODUCT_NAME = NewTerm;
+				PRODUCT_BUNDLE_IDENTIFIER = com.davghz.t3rm;
+				PRODUCT_NAME = t3rm;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
@@ -1331,7 +1331,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = N2LN9ZT493;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1369,11 +1369,11 @@
 					"$(PROJECT_DIR)/Vendor",
 					"$(PROJECT_DIR)/Vendor/libiosexec",
 				);
-				MARKETING_VERSION = 3.0b1;
+				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = ws.hbang.Terminal;
-				PRODUCT_NAME = NewTerm;
+				PRODUCT_BUNDLE_IDENTIFIER = com.davghz.t3rm;
+				PRODUCT_NAME = t3rm;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
@@ -1392,12 +1392,12 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = ws.hbang.NewTermSessionTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.davghz.t3rm.sessiontests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NewTerm.app/NewTerm";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/t3rm.app/t3rm";
 			};
 			name = Debug;
 		};
@@ -1407,12 +1407,12 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = ws.hbang.NewTermSessionTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.davghz.t3rm.sessiontests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NewTerm.app/NewTerm";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/t3rm.app/t3rm";
 			};
 			name = Release;
 		};

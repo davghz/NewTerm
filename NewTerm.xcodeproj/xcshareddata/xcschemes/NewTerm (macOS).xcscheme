@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "CF71BC2022BB61E200AFB1E1"
-               BuildableName = "NewTerm.app"
+               BuildableName = "t3rm.app"
                BlueprintName = "NewTerm (macOS)"
                ReferencedContainer = "container:NewTerm.xcodeproj">
             </BuildableReference>
@@ -45,7 +45,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "CF71BC2022BB61E200AFB1E1"
-            BuildableName = "NewTerm.app"
+            BuildableName = "t3rm.app"
             BlueprintName = "NewTerm (macOS)"
             ReferencedContainer = "container:NewTerm.xcodeproj">
          </BuildableReference>
@@ -62,7 +62,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "CF71BC2022BB61E200AFB1E1"
-            BuildableName = "NewTerm.app"
+            BuildableName = "t3rm.app"
             BlueprintName = "NewTerm (macOS)"
             ReferencedContainer = "container:NewTerm.xcodeproj">
          </BuildableReference>

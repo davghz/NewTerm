@@ -40,8 +40,8 @@ struct ShellLaunchConfiguration {
 		var environment = ProcessInfo.processInfo.environment
 		environment["TERM"] = "xterm-256color"
 		environment["COLORTERM"] = "truecolor"
-		environment["TERM_PROGRAM"] = "NewTerm"
-		environment["LC_TERMINAL"] = "NewTerm"
+		environment["TERM_PROGRAM"] = "t3rm"
+		environment["LC_TERMINAL"] = "t3rm"
 		environment["LANG"] = localeCode(preferredLocale)
 		return Self(executable: executable, arguments: arguments, environment: environment)
 	}

@@ -15,7 +15,7 @@ extension NSUserActivity {
 
 class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate, IdentifiableSceneDelegate {
 
-	static let activityType = "ws.hbang.Terminal.TerminalSceneActivity"
+	static let activityType = "com.davghz.t3rm.TerminalSceneActivity"
 
 	var window: UIWindow?
 
@@ -53,7 +53,7 @@ class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate, IdentifiableSce
 		for context in URLContexts {
 			let url = context.url
 			switch url.scheme {
-			case "ssh":
+			case "t3rm-ssh":
 				createWindow(asTab: true, openingURL: url)
 
 			default: break
@@ -68,7 +68,7 @@ class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate, IdentifiableSce
 		var sshPayload: String?
 		if let url = url,
 			 let host = url.host,
-			 url.scheme == "ssh" {
+			 url.scheme == "t3rm-ssh" {
 			sshPayload = host
 			if let user = url.user {
 				sshPayload = "\(user)@\(host)"

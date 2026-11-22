@@ -17,7 +17,7 @@ struct UpdateCheckResponse: Codable {
 
 class UpdateCheckManager {
 
-	private static let log = OSLog(subsystem: "ws.hbang.Terminal", category: "UpdateCheckManager")
+	private static let log = OSLog(subsystem: "com.davghz.t3rm", category: "UpdateCheckManager")
 
 	static let updateAvailableNotification = Notification.Name(rawValue: "UpdateCheckManagerUpdateAvailableNotification")
 

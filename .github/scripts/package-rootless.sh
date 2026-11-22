@@ -13,10 +13,10 @@ xcodebuild -project NewTerm.xcodeproj -scheme 'NewTerm (iOS)' \
     -derivedDataPath "$build" -onlyUsePackageVersionsFromResolvedFile \
     CODE_SIGNING_ALLOWED=NO INSTALL_PREFIX=/var/jb ARCHS=arm64 build
 
-app="$stage/pkg/var/jb/Applications/NewTerm.app"
-ditto "$build/Build/Products/Release-iphoneos/NewTerm.app" "$app"
+app="$stage/pkg/var/jb/Applications/t3rm.app"
+ditto "$build/Build/Products/Release-iphoneos/t3rm.app" "$app"
 ldid -S "$app/NewTermLoginHelper"
-ldid -SApp/entitlements.plist "$app/NewTerm"
+ldid -SApp/entitlements.plist "$app/t3rm"
 sed 's/^Architecture: .*/Architecture: iphoneos-arm64/' control > "$stage/pkg/DEBIAN/control"
 name=$(sed -n 's/^Package: //p' control)
 version=$(sed -n 's/^Version: //p' control)

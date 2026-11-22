@@ -14,7 +14,7 @@ extension NSUserActivity {
 
 class AboutSceneDelegate: UIResponder, UIWindowSceneDelegate, IdentifiableSceneDelegate {
 
-	static let activityType = "ws.hbang.Terminal.AboutSceneActivity"
+	static let activityType = "com.davghz.t3rm.AboutSceneActivity"
 
 	var window: UIWindow?
 

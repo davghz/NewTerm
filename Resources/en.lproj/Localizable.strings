@@ -12,7 +12,7 @@
 
 	<!-- Title of About page. -->
 	<key>ABOUT</key>
-	<string>About NewTerm</string>
+	<string>About t3rm</string>
 
 	<!-- VoiceOver label for the password manager button. -->
 	<key>PASSWORD_MANAGER</key>

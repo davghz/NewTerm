@@ -11,7 +11,7 @@ import NewTermCommon
 import SwiftUIX
 
 extension Notification.Name {
-	static let terminalKeyboardToolbarLayoutDidChange = Notification.Name("ws.hbang.newterm3.terminalKeyboardToolbarLayoutDidChange")
+	static let terminalKeyboardToolbarLayoutDidChange = Notification.Name("com.davghz.t3rm.terminalKeyboardToolbarLayoutDidChange")
 }
 
 extension ToolbarKey {

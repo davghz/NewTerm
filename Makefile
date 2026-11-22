@@ -11,7 +11,7 @@ else
 	export DEB_ARCH = iphoneos-arm
 endif
 
-INSTALL_TARGET_PROCESSES = NewTerm
+INSTALL_TARGET_PROCESSES = t3rm
 
 include $(THEOS)/makefiles/common.mk
 
@@ -27,4 +27,4 @@ include $(THEOS_MAKE_PATH)/xcodeproj.mk
 override THEOS_PACKAGE_ARCH := $(DEB_ARCH)
 
 after-stage::
-	@$(TARGET_CODESIGN) $(NewTerm_CODESIGN_FLAGS) "$(THEOS_STAGING_DIR)$(INSTALL_PREFIX)/Applications/NewTerm.app/NewTermLoginHelper"
+	@$(TARGET_CODESIGN) $(NewTerm_CODESIGN_FLAGS) "$(THEOS_STAGING_DIR)$(INSTALL_PREFIX)/Applications/t3rm.app/NewTermLoginHelper"

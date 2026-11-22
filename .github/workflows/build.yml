@@ -22,7 +22,7 @@ jobs:
         run: .github/scripts/package-rootless.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: NewTerm-ios15-rootless
+          name: t3rm-ios15-rootless
           path: |
             packages/*.deb
             packages/*.sha256

@@ -64,11 +64,11 @@ final class SubProcess {
 		queue.sync { fileDescriptor.map { nt_foreground_is_codex($0) } ?? false }
 	}
 
-	private let queue = DispatchQueue(label: "ws.hbang.Terminal.io-queue")
+	private let queue = DispatchQueue(label: "com.davghz.t3rm.io-queue")
 	private var readSource: DispatchSourceRead?
 	private var signalSource: DispatchSourceProcess?
 
-	private let log = OSLog(subsystem: "ws.hbang.Terminal", category: "SubProcess")
+	private let log = OSLog(subsystem: "com.davghz.t3rm", category: "SubProcess")
 
 	private var currentSize = ScreenSize.default
 	var screenSize: ScreenSize {

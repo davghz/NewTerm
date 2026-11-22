@@ -56,7 +56,7 @@ public class TerminalController {
 	}
 	private var readBuffer = [UTF8Char]()
 
-	internal var terminalQueue = DispatchQueue(label: "ws.hbang.Terminal.terminal-queue")
+	internal var terminalQueue = DispatchQueue(label: "com.davghz.t3rm.terminal-queue")
 
 	public var screenSize: ScreenSize? {
 		didSet { updateScreenSize() }
