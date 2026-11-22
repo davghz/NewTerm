@@ -12,6 +12,7 @@ import NewTermCommon
 
 class TerminalState: ObservableObject {
 	@Published var lines = [AnyView]()
+	var followsOutput = true
 	@Published var fontMetrics = FontMetrics(font: AppFont(), fontSize: 12)
 	@Published var colorMap = ColorMap(theme: AppTheme())
 	@Published var isSplitViewResizing = false
@@ -41,7 +42,9 @@ struct TerminalView: View {
 				}
 					.background(Color(state.colorMap.background))
 					.onChange(of: state.lines.indices.last, perform: { _ in
-						scrollView.scrollTo(state.lines.indices.last, anchor: .bottom)
+						if state.followsOutput {
+							scrollView.scrollTo(state.lines.indices.last, anchor: .bottom)
+						}
 					})
 			}
 				.opacity(state.isSplitViewResizing ? 0.6 : 1)

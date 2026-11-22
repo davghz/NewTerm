@@ -32,6 +32,7 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 	private var textView: TerminalHostingView!
 	private weak var terminalScrollView: UIScrollView?
 	private var textViewTapGestureRecognizer: UITapGestureRecognizer!
+	private lazy var wheelPan = UIPanGestureRecognizer(target: self, action: #selector(handleWheelPan(_:)))
 
 	private var state = TerminalState()
 
@@ -78,6 +79,9 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 		textViewTapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(self.handleTextViewTap(_:)))
 		textViewTapGestureRecognizer.delegate = self
 		textView.addGestureRecognizer(textViewTapGestureRecognizer)
+		wheelPan.maximumNumberOfTouches = 1
+		wheelPan.delegate = self
+		textView.addGestureRecognizer(wheelPan)
 
 		keyInput.frame = view.bounds
 		keyInput.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -321,11 +325,15 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 		scrollView.contentInsetAdjustmentBehavior = .never
 		scrollView.contentInset = .zero
 		terminalScrollView = scrollView
+		scrollView.keyboardDismissMode = .interactive
+		scrollView.alwaysBounceVertical = true
+		scrollView.panGestureRecognizer.require(toFail: wheelPan)
 		return scrollView
 	}
 
 	private func pinTerminalViewport(forceBottom: Bool = false) {
-		guard let scrollView = configuredTerminalScrollView() else {
+		guard let scrollView = configuredTerminalScrollView(),
+			  !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating else {
 			return
 		}
 
@@ -423,6 +431,10 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 extension TerminalSessionViewController: TerminalControllerDelegate {
 
 	func refresh(lines: inout [AnyView]) {
+		if let scroll = configuredTerminalScrollView() {
+			state.followsOutput = !scroll.isTracking && !scroll.isDecelerating
+				&& scroll.contentSize.height - scroll.bounds.height - scroll.contentOffset.y <= 2
+		}
 		state.lines = lines
 		DispatchQueue.main.async { [weak self] in
 			self?.pinTerminalViewport(forceBottom: !(self?.hasPinnedInitialTerminalPosition ?? false))
@@ -504,6 +516,43 @@ extension TerminalSessionViewController: TerminalControllerDelegate {
 }
 
 extension TerminalSessionViewController: UIGestureRecognizerDelegate {
+
+	func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+		guard gestureRecognizer === wheelPan else { return true }
+		let velocity = wheelPan.velocity(in: textView)
+		guard abs(velocity.y) > abs(velocity.x), terminalController.reportsMouse else { return false }
+		if velocity.y > 0, let top = keyboardTop(in: textView) {
+			let startY = wheelPan.location(in: textView).y - wheelPan.translation(in: textView).y
+			// Let UIKit track a pull starting next to the keyboard interactively.
+			if startY >= top - 44 { return false }
+		}
+		return true
+	}
+
+	private func keyboardTop(in view: UIView) -> CGFloat? {
+		guard keyInput.isFirstResponder, let accessory = keyInput.inputAccessoryViewController?.viewIfLoaded,
+			  accessory.window != nil, accessory.bounds.height > 0 else { return nil }
+		return accessory.convert(accessory.bounds, to: view).minY
+	}
+
+	@objc private func handleWheelPan(_ pan: UIPanGestureRecognizer) {
+		guard pan.state == .changed || pan.state == .ended else { return }
+		if pan.velocity(in: textView).y > 0, let top = keyboardTop(in: textView),
+		   pan.location(in: textView).y >= top {
+			keyInput.resignFirstResponder()
+			return
+		}
+		guard pan.state == .changed else { return }
+		let cell = terminalController.fontMetrics.boundingBox
+		let height = max(1, ceil(cell.height))
+		let motion = pan.translation(in: textView).y
+		let steps = Int(abs(motion) / height)
+		guard steps > 0 else { return }
+		let point = pan.location(in: textView)
+		terminalController.scrollMouse(up: motion > 0, steps: steps,
+			column: Int(point.x / max(1, cell.width)), row: Int(point.y / height))
+		pan.setTranslation(CGPoint(x: 0, y: motion.truncatingRemainder(dividingBy: height)), in: textView)
+	}
 
 	func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
 		// This allows the tap-to-activate-keyboard gesture to work without conflicting with UIKit’s

@@ -135,6 +135,12 @@ class SubProcess {
 
 	private var childPID: pid_t?
 	private var fileDescriptor: Int32?
+	private var writeChannel: DispatchIO?
+
+	var foregroundIsCodex: Bool {
+		guard let fd = fileDescriptor else { return false }
+		return nt_foreground_is_codex(fd)
+	}
 
 	private let queue = DispatchQueue(label: "ws.hbang.Terminal.io-queue")
 	private var readSource: DispatchSourceRead?
@@ -161,6 +167,15 @@ class SubProcess {
 			throw SubProcessIllegalStateError.openPtyFailed(errno: error)
 		}
 
+		let writer = dup(fds.primary)
+		guard writer >= 0 else {
+			let code = errno
+			close(fds.primary)
+			close(fds.replica)
+			throw SubProcessIllegalStateError.openPtyFailed(errno: code)
+		}
+		fcntl(writer, F_SETFD, FD_CLOEXEC)
+		fcntl(fds.primary, F_SETFD, FD_CLOEXEC)
 		fileDescriptor = fds.primary
 
 		var actions: posix_spawn_file_actions_t!
@@ -168,6 +183,9 @@ class SubProcess {
 		posix_spawn_file_actions_adddup2(&actions, fds.replica, STDIN_FILENO)
 		posix_spawn_file_actions_adddup2(&actions, fds.replica, STDOUT_FILENO)
 		posix_spawn_file_actions_adddup2(&actions, fds.replica, STDERR_FILENO)
+		if fds.replica > STDERR_FILENO {
+			posix_spawn_file_actions_addclose(&actions, fds.replica)
+		}
 		defer { posix_spawn_file_actions_destroy(&actions) }
 
 		// TODO: At some point, come up with some way to keep track of working directory changes.
@@ -194,12 +212,17 @@ class SubProcess {
 		if result != 0 {
 			// Fork failed.
 			close(fds.primary)
+			close(writer)
+			fileDescriptor = nil
 			os_log("posix_spawn() failed: %{public}d", log: log, type: .error, result)
 			throw SubProcessIllegalStateError.forkFailed(errno: result)
 		}
 
 		os_log("Process forked: %{public}d", log: log, type: .debug, pid)
 		childPID = pid
+		writeChannel = DispatchIO(type: .stream, fileDescriptor: writer, queue: queue) { _ in
+			close(writer)
+		}
 
 		// Go ahead and plug a file handle into the child tty.
 		readSource = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor!, queue: queue)
@@ -236,6 +259,8 @@ class SubProcess {
 		}
 
 		self.childPID = nil
+		writeChannel?.close(flags: .stop)
+		writeChannel = nil
 		fileDescriptor = nil
 		readSource?.cancel()
 		readSource = nil
@@ -287,12 +312,13 @@ class SubProcess {
 	}
 
 	func write(data: [UTF8Char]) {
-		queue.async {
-			guard let fileDescriptor = self.fileDescriptor else {
-				return
-			}
-			_ = data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
-				Darwin.write(fileDescriptor, buffer.baseAddress!, buffer.count)
+		guard !data.isEmpty, let writer = writeChannel else { return }
+		let bytes = data.withUnsafeBytes { DispatchData(bytes: $0) }
+		writer.write(offset: 0, data: bytes, queue: queue) { [weak self] done, _, error in
+			if done && error != 0 && error != ECANCELED {
+				DispatchQueue.main.async {
+					self?.delegate?.subProcess(didReceiveError: SubProcessIOError.writeFailed(errno: error))
+				}
 			}
 		}
 	}

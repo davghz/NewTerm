@@ -11,11 +11,7 @@ import CoreText
 import os.log
 
 private func logError(_ message: String) {
-	if #available(iOS 14.0, *) {
-		Logger().error("\(message, privacy: .public)")
-	} else {
-		os_log("%{public}@", log: OSLog.default, type: .error, message)
-	}
+	os_log("%{public}@", log: OSLog.default, type: .error, message)
 }
 
 public struct FontMetrics: Hashable {

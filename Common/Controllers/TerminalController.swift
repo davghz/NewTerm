@@ -337,9 +337,7 @@ extension TerminalController: TerminalDelegate {
 	public func isProcessTrusted(source: Terminal) -> Bool { isLocalhost }
 
 	public func send(source: Terminal, data: ArraySlice<UInt8>) {
-		terminalQueue.async {
-			self.write([UTF8Char](data))
-		}
+		write(Array(data))
 	}
 
 	public func bell(source: Terminal) {
@@ -411,9 +409,42 @@ extension TerminalController: TerminalInputProtocol {
 
 	public var applicationCursor: Bool { terminal?.applicationCursor ?? false }
 
+	public var handlesControlVPaste: Bool { subProcess?.foregroundIsCodex ?? false }
+
+	public func paste(_ text: String) {
+		terminalQueue.async {
+			let payload: String
+			if self.terminal?.bracketedPasteMode == true {
+				// A literal ESC in pasted data must not close the paste frame.
+				let safeText = text.replacingOccurrences(of: "\u{1b}", with: "")
+				payload = "\u{1b}[200~" + safeText + "\u{1b}[201~"
+			} else {
+				payload = text
+			}
+			self.write(Array(payload.utf8))
+		}
+	}
+
+	public var reportsMouse: Bool {
+		terminalQueue.sync { terminal.map { $0.mouseMode != .off } ?? false }
+	}
+
+	public func scrollMouse(up: Bool, steps: Int, column: Int, row: Int) {
+		terminalQueue.async {
+			guard let terminal = self.terminal, terminal.mouseMode != .off else { return }
+			// Legacy X10 coordinates are single bytes offset by 33.
+			let x = max(0, min(column, terminal.cols - 1, 222))
+			let y = max(0, min(row, terminal.rows - 1, 222))
+			for _ in 0..<steps {
+				terminal.sendEvent(buttonFlags: up ? 64 : 65, x: x, y: y)
+			}
+		}
+	}
+
 	public func receiveKeyboardInput(data: [UTF8Char]) {
-		// Forward the data from the keyboard directly to the subprocess
-		subProcess!.write(data: data)
+		terminalQueue.async {
+			self.write(data)
+		}
 	}
 
 }

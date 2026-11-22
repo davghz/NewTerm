@@ -7,12 +7,11 @@
 
 import SwiftUI
 import NewTermCommon
-import SwiftUIX
 
 fileprivate struct Key {
 	var label: String
 	var glyph: String?
-	var imageName: SFSymbolName?
+	var imageName: String?
 	var preferredStyle: KeyboardButtonStyle?
 	var isToggle = false
 	var halfHeight = false
@@ -41,6 +40,7 @@ enum Toolbar: CaseIterable {
 
 		case .secondary:
 			return [
+				.shift, .paste,
 				.home, .end,
 				.variableSpace(id: 0),
 				.pageUp, .pageDown,
@@ -63,6 +63,7 @@ enum ToolbarKey: Hashable {
 	case arrows
 	// Primary - leading
 	case control, escape, tab, more
+	case shift, paste
 	// Primary - trailing
 	case up, down, left, right
 	// Secondary - navigation
@@ -81,35 +82,37 @@ enum ToolbarKey: Hashable {
 		// Primary - leading
 		case .control:  return Key(label: .localize("Control"),
 															 glyph: .localize("Ctrl"),
-															 imageName: .control,
+															 imageName: "control",
 															 isToggle: true)
+		case .shift:    return Key(label: .localize("Shift"), isToggle: true)
+		case .paste:    return Key(label: .localize("Paste"))
 		case .escape:   return Key(label: .localize("Escape"),
 															 glyph: .localize("Esc"),
-															 imageName: .escape)
+															 imageName: "escape")
 		case .tab:      return Key(label: .localize("Tab"),
-															 imageName: .arrowRightToLine)
+															 imageName: "arrow.right.to.line")
 		case .more:     return Key(label: .localize("More"),
-															 imageName: .ellipsis,
+															 imageName: "ellipsis",
 															 preferredStyle: .icons,
 															 isToggle: true)
 		// Primary - trailing
 		case .up:       return Key(label: .localize("Up"),
-															 imageName: .arrowUp,
+															 imageName: "arrow.up",
 															 preferredStyle: .icons,
 															 halfHeight: true,
 															 widthRatio: 1)
 		case .down:     return Key(label: .localize("Down"),
-															 imageName: .arrowDown,
+															 imageName: "arrow.down",
 															 preferredStyle: .icons,
 															 halfHeight: true,
 															 widthRatio: 1)
 		case .left:     return Key(label: .localize("Left"),
-															 imageName: .arrowLeft,
+															 imageName: "arrow.left",
 															 preferredStyle: .icons,
 															 halfHeight: true,
 															 widthRatio: 1)
 		case .right:    return Key(label: .localize("Right"),
-															 imageName: .arrowRight,
+															 imageName: "arrow.right",
 															 preferredStyle: .icons,
 															 halfHeight: true,
 															 widthRatio: 1)
@@ -128,7 +131,7 @@ enum ToolbarKey: Hashable {
 		// Secondary - extras
 		case .delete:   return Key(label: .localize("Delete Forward"),
 															 glyph: .localize("Del"),
-															 imageName: .deleteRight,
+															 imageName: "delete.right",
 															 preferredStyle: .icons,
 															 widthRatio: 1)
 		case .fnKeys:   return Key(label: .localize("Function Keys"),
@@ -180,7 +183,7 @@ struct KeyboardToolbarKeyStack: View {
 
 	@ViewBuilder
 	func button(for key: ToolbarKey, halfHeight: Bool = false) -> some View {
-		let button = Button {
+		let button = keyButton {
 			UIDevice.current.playInputClick()
 
 			if key.key.isToggle {
@@ -236,6 +239,16 @@ struct KeyboardToolbarKeyStack: View {
 				})
 		} else {
 			button
+		}
+	}
+
+	@ViewBuilder
+	private func keyButton<Label: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
+		if #available(iOS 15, *) {
+			// Select SwiftUI's initializer explicitly; the pinned SwiftUIX adds a recursive overload.
+			Button(role: nil, action: action, label: label)
+		} else {
+			Button(action: action, label: label)
 		}
 	}
 
@@ -296,11 +309,11 @@ struct KeyboardToolbarKeyStack: View {
 }
 
 struct KeyboardToolbarView: View {
+	static let rowHeight: CGFloat = 51
+
 	weak var delegate: KeyboardToolbarViewDelegate?
 
 	let toolbars: [Toolbar]
-
-	@State private var outerSize = CGSize.zero
 
 	@EnvironmentObject var state: KeyboardToolbarViewState
 
@@ -319,30 +332,24 @@ struct KeyboardToolbarView: View {
 
 	@ViewBuilder
 	var body: some View {
-		ZStack(alignment: .bottom) {
-			Color.black
-				.frame(height: 0)
-				.captureSize(in: $outerSize)
+		VStack(spacing: 0) {
+			ForEach(toolbars, id: \.self) { toolbar in
+				if isToolbarVisible(toolbar) {
+					let view = KeyboardToolbarKeyStack(delegate: delegate,
+																						 toolbar: toolbar)
+						.padding(.horizontal, 4)
+						.padding(.vertical, 3)
 
-			VStack(spacing: 0) {
-				ForEach(toolbars, id: \.self) { toolbar in
-					if isToolbarVisible(toolbar) {
-						let view = KeyboardToolbarKeyStack(delegate: delegate,
-																							 toolbar: toolbar)
-							.padding(.horizontal, 4)
-							.padding(.top, 5)
+					switch toolbar {
+					case .primary, .padPrimaryLeading, .padPrimaryTrailing:
+						view.frame(maxWidth: .infinity)
+							.frame(height: Self.rowHeight)
 
-						switch toolbar {
-						case .primary, .padPrimaryLeading, .padPrimaryTrailing, .secondary:
+					case .fnKeys, .secondary:
+						ScrollView(.horizontal, showsIndicators: false) {
 							view
-								.frame(width: outerSize.width)
-
-						case .fnKeys:
-							CocoaScrollView(.horizontal, showsIndicators: false) {
-								view
-							}
-								.frame(width: outerSize.width)
 						}
+						.frame(height: Self.rowHeight)
 					}
 				}
 			}
@@ -360,7 +367,7 @@ struct KeyboardToolbarView_Previews: PreviewProvider {
 				KeyboardToolbarView(toolbars: [.fnKeys, .secondary, .primary])
 					.environmentObject(state)
 					.padding(.bottom, 4)
-					.background(BlurEffectView(style: .systemChromeMaterial))
+					.background(Color(.keyboardToolbarBackground))
 					.preferredColorScheme(scheme)
 					.previewLayout(.sizeThatFits)
 			}

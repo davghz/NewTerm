@@ -30,7 +30,7 @@ extension ToolbarKey {
 		case .delete:   return EscapeSequences.delete
 		case .fnKey(let index): return EscapeSequences.fn[index - 1]
 		case .fixedSpace, .variableSpace, .arrows,
-				 .control, .more, .fnKeys:
+				 .control, .shift, .paste, .more, .fnKeys:
 			return []
 		}
 	}
@@ -48,6 +48,20 @@ extension ToolbarKey {
 	func keySequence(applicationCursor: Bool = false) -> [UTF8Char] {
 		(applicationCursor ? appKeySequence : nil) ?? keySequence
 	}
+
+	var shiftedSequence: [UTF8Char]? {
+		switch self {
+		case .tab: return Array("\u{1b}[Z".utf8)
+		case .up, .down, .right, .left, .home, .end:
+			return Array("\u{1b}[1;2".utf8) + keySequence.suffix(1)
+		case .pageUp, .pageDown, .delete:
+			return Array(keySequence.dropLast()) + Array(";2~".utf8)
+		case .fnKey(let index):
+			return index <= 4 ? Array("\u{1b}[1;2".utf8) + keySequence.suffix(1)
+				: Array(keySequence.dropLast()) + Array(";2~".utf8)
+		default: return nil
+		}
+	}
 }
 
 class TerminalKeyInput: TextInputBase {
@@ -61,7 +75,7 @@ class TerminalKeyInput: TextInputBase {
 		}
 	}
 
-	private var toolbar: KeyboardToolbarInputView!
+	private var toolbar: KeyboardToolbarController!
 	private var passwordInputView: TerminalPasswordInputView?
 
 	private var previousFloatingCursorPoint: CGPoint? = nil
@@ -92,35 +106,33 @@ class TerminalKeyInput: TextInputBase {
 
 			inputAssistantItem.allowsHidingShortcuts = false
 
-			if #available(iOS 16, *) {
-				inputAssistantItem.leadingBarButtonGroups += [
-					.fixedGroup(items: [UIBarButtonItem(customView: leadingView)])
-				]
-				inputAssistantItem.trailingBarButtonGroups += [
-					.fixedGroup(items: [UIBarButtonItem(customView: trailingView)])
-				]
-			} else {
-				inputAssistantItem.leadingBarButtonGroups += [
-					UIBarButtonItemGroup(barButtonItems: [UIBarButtonItem(customView: leadingView)], representativeItem: nil)
-				]
-				inputAssistantItem.trailingBarButtonGroups += [
-					UIBarButtonItemGroup(barButtonItems: [UIBarButtonItem(customView: trailingView)], representativeItem: nil)
-				]
-			}
+			inputAssistantItem.leadingBarButtonGroups += [
+				UIBarButtonItemGroup(barButtonItems: [UIBarButtonItem(customView: leadingView)], representativeItem: nil)
+			]
+			inputAssistantItem.trailingBarButtonGroups += [
+				UIBarButtonItemGroup(barButtonItems: [UIBarButtonItem(customView: trailingView)], representativeItem: nil)
+			]
 		} else {
 			toolbars += [.primary]
 		}
 
-		toolbar = KeyboardToolbarInputView(delegate: self,
+		toolbar = KeyboardToolbarController(delegate: self,
 																			 toolbars: toolbars,
 																			 state: state)
+		let dismissSwipe = UISwipeGestureRecognizer(target: self, action: #selector(dismissAccessoryKeyboard))
+		dismissSwipe.direction = .down
+		toolbar.view.addGestureRecognizer(dismissSwipe)
+	}
+
+	@objc private func dismissAccessoryKeyboard() {
+		resignFirstResponder()
 	}
 
 	required init?(coder aDecoder: NSCoder) {
 		fatalError("init(coder:) has not been implemented")
 	}
 
-	override var inputAccessoryView: UIView? { toolbar }
+	override var inputAccessoryViewController: UIInputViewController? { toolbar }
 
 	// MARK: - Password manager
 
@@ -143,8 +155,18 @@ class TerminalKeyInput: TextInputBase {
 
 	override func insertText(_ text: String) {
 		// Used by the software keyboard only. See pressesBegan(_:with:) below for hardware keyboard.
-		let isCtrlDown = state.toggledKeys.contains(.control)
-		let data = text.utf8.map { character -> UTF8Char in
+		let isCtrlDown = state.toggledKeys.remove(.control) != nil
+		let isShiftDown = state.toggledKeys.remove(.shift) != nil
+		if isCtrlDown && text.lowercased() == "v" && (isShiftDown || terminalInputDelegate?.handlesControlVPaste == true) {
+			paste(nil)
+			return
+		}
+		if isShiftDown && (text == "\n" || text == "\r") {
+			let sequence = isCtrlDown ? "\u{1b}[13;6u" : "\u{1b}[13;2u"
+			terminalInputDelegate?.receiveKeyboardInput(data: Array(sequence.utf8))
+			return
+		}
+		let data = (isShiftDown ? text.uppercased() : text).utf8.map { character -> UTF8Char in
 			// Convert newline to carriage return
 			if character == 0x0A {
 				return EscapeSequences.return.first!
@@ -157,16 +179,10 @@ class TerminalKeyInput: TextInputBase {
 
 		terminalInputDelegate!.receiveKeyboardInput(data: data)
 
-		if isCtrlDown {
-			state.toggledKeys.remove(.control)
-		}
-
-//		if !moreToolbar.isHidden {
-//			setMoreRowVisible(false, animated: true)
-//		}
 	}
 
 	override func deleteBackward() {
+		state.toggledKeys.remove(.shift)
 		terminalInputDelegate!.receiveKeyboardInput(data: EscapeSequences.backspace)
 	}
 
@@ -222,7 +238,7 @@ class TerminalKeyInput: TextInputBase {
 		switch action {
 		case #selector(self.paste(_:)):
 			// Only paste if the pasteboard contains a plaintext type
-			return UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs
+			return UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs || UIPasteboard.general.hasImages
 
 		case #selector(self.cut(_:)):
 			// Ensure cut is never allowed
@@ -238,8 +254,17 @@ class TerminalKeyInput: TextInputBase {
 	}
 
 	override func paste(_ sender: Any?) {
-		if let string = UIPasteboard.general.string {
-			terminalInputDelegate!.receiveKeyboardInput(data: string.utf8Array)
+		let board = UIPasteboard.general
+		if board.hasImages, let data = board.image?.pngData() {
+			let url = FileManager.default.temporaryDirectory.appendingPathComponent("paste-\(UUID().uuidString).png")
+			do {
+				try data.write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
+				terminalInputDelegate?.paste(url.path)
+			} catch {
+				UIAccessibility.post(notification: .announcement, argument: error.localizedDescription)
+			}
+		} else if let text = board.string ?? board.url?.absoluteString {
+			terminalInputDelegate?.paste(text)
 		}
 	}
 
@@ -327,6 +352,13 @@ class TerminalKeyInput: TextInputBase {
 
 		var isHandled = false
 		for press in presses {
+			if let key = press.key, key.keyCode == .keyboardV,
+			   key.modifierFlags.contains(.control), !key.modifierFlags.contains(.command),
+			   key.modifierFlags.contains(.shift) || terminalInputDelegate?.handlesControlVPaste == true {
+				paste(nil)
+				isHandled = true
+				continue
+			}
 			if let key = press.key,
 					 handleKey(key) {
 				isHandled = true
@@ -424,20 +456,21 @@ extension TerminalKeyInput: KeyboardToolbarViewDelegate {
 			return
 		}
 
-		terminalInputDelegate.receiveKeyboardInput(data: key.keySequence(applicationCursor: terminalInputDelegate.applicationCursor))
+		if key == .paste {
+			paste(nil)
+			return
+		}
+		let sequence = key.keySequence(applicationCursor: terminalInputDelegate.applicationCursor)
+		if !sequence.isEmpty {
+			let shifted = state.toggledKeys.remove(.shift) != nil
+			terminalInputDelegate.receiveKeyboardInput(data: shifted ? key.shiftedSequence ?? sequence : sequence)
+		}
 
-		switch key {
-		case .more:
-			// Also hide fn row if currently toggled
-			if state.toggledKeys.contains(.fnKeys) {
-				state.toggledKeys.remove(.fnKeys)
-			}
+		if key == .more { state.toggledKeys.remove(.fnKeys) }
+		if key == .more || key == .fnKeys {
+			// Ask the keyboard window to reserve the new accessory height.
+			reloadInputViews()
 			NotificationCenter.default.post(name: .terminalKeyboardToolbarLayoutDidChange, object: nil)
-
-		case .fnKeys:
-			NotificationCenter.default.post(name: .terminalKeyboardToolbarLayoutDidChange, object: nil)
-
-		default: break
 		}
 	}
 

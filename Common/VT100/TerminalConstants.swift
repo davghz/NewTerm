@@ -72,7 +72,7 @@ public extension UTF8Char {
 			newCharacter += 0x61 - 0x41 // 'a' - 'A'
 		}
 		// Convert to the matching control character
-		if self >= 0x61 && self <= 0x7A { // >= 'a' <= 'z'
+		if newCharacter >= 0x61 && newCharacter <= 0x7A { // >= 'a' <= 'z'
 			newCharacter -= 0x61 - 1 // 'a' - 1
 		}
 		return newCharacter

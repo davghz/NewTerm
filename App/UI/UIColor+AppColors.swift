@@ -30,8 +30,8 @@ extension UIColor {
 	static let legacyBackground = UIColor(white: 26 / 255, alpha: 1)
 	static let legacySeparator  = UIColor(white: 60 / 255, alpha: 1)
 
-	static let keyboardToolbarBackground = UIColor(lightColor: UIColor(red: 202 / 255, green: 205 / 255, blue: 211 / 255, alpha: 0.73),
-																								 darkColor: UIColor(white: 235 / 255, alpha: 0.055))
+	static let keyboardToolbarBackground = UIColor(lightColor: UIColor(red: 202 / 255, green: 205 / 255, blue: 211 / 255, alpha: 1),
+																								 darkColor: UIColor(white: 50 / 255, alpha: 1))
 
 	static let keyBackgroundNormal      = UIColor(lightColor: UIColor(red: 180 / 255, green: 184 / 255, blue: 193 / 255, alpha: 1),
 																								 darkColor: UIColor(white: 1, alpha: 69 / 255))
