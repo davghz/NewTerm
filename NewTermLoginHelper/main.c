@@ -6,7 +6,6 @@
 //
 
 #include <errno.h>
-#include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,9 +33,13 @@ int main(int argc, char *argv[]) {
 
 	// Construct command line to exec by replacing argv[2] with shell basename preceded by "-", which
 	// indicates to the shell that it is being launched by login(1).
-	char *program = malloc(strlen(argv[2]));
-	strcpy(program, argv[2]);
-	asprintf(&argv[2], "-%s", basename(program));
+	const char *program = argv[2];
+	const char *slash = strrchr(program, '/');
+	const char *name = slash ? slash + 1 : program;
+	if (asprintf(&argv[2], "-%s", name) == -1) {
+		perror("asprintf()");
+		return 1;
+	}
 
 	// Now exec the shell, using our supplied command line from argv[2] onwards.
 	execvp(program, (char **)&argv[2]);

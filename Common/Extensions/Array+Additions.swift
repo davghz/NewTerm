@@ -14,9 +14,9 @@ extension Array where Element == String {
 }
 
 extension Array where Element == Optional<UnsafeMutablePointer<CChar>> {
-	func deallocate() {
+	func freeCStrings() {
 		for item in self {
-			item?.deallocate()
+			free(item)
 		}
 	}
 }
