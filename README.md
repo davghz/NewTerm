@@ -4,7 +4,7 @@ t3rm is an experimental terminal app based on NewTerm 3. It installs alongside N
 
 ## Install
 
-Build the Debian package from this worktree using the command below. Open the resulting `.deb` in your package manager, then launch **t3rm** from the Home Screen.
+Download the `iphoneos-arm64.deb` for t3rm, open it in your package manager, and launch **t3rm** from the Home Screen. [Latest t3rm release](https://github.com/davghz/t3rm/releases/latest)
 
 ## Use the keyboard and tabs
 
