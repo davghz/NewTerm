@@ -23,24 +23,35 @@ enum Toolbar: CaseIterable {
 	case primary, padPrimaryLeading, padPrimaryTrailing
 	case secondary, fnKeys
 
+	func isVisible(with toggles: Set<ToolbarKey>) -> Bool {
+		switch self {
+		case .primary, .padPrimaryLeading, .padPrimaryTrailing:
+			return true
+		case .secondary:
+			return toggles.contains(.more)
+		case .fnKeys:
+			return toggles.contains(.fnKeys)
+		}
+	}
+
 	var keys: [ToolbarKey] {
 		switch self {
 		case .primary:
 			return [
-				.control, .escape, .tab, .more,
+				.control, .escape, .shift, .more,
 				.variableSpace(id: 0),
 				.arrows
 			]
 
 		case .padPrimaryLeading:
-			return [.control, .escape, .tab, .more]
+			return [.control, .escape, .shift, .more]
 
 		case .padPrimaryTrailing:
 			return [.arrows]
 
 		case .secondary:
 			return [
-				.shift, .paste,
+				.tab, .paste,
 				.home, .end,
 				.variableSpace(id: 0),
 				.pageUp, .pageDown,
@@ -84,7 +95,7 @@ enum ToolbarKey: Hashable {
 															 glyph: .localize("Ctrl"),
 															 imageName: "control",
 															 isToggle: true)
-		case .shift:    return Key(label: .localize("Shift"), isToggle: true)
+		case .shift:    return Key(label: .localize("Shift"), imageName: "shift", isToggle: true)
 		case .paste:    return Key(label: .localize("Paste"))
 		case .escape:   return Key(label: .localize("Escape"),
 															 glyph: .localize("Esc"),
@@ -319,22 +330,13 @@ struct KeyboardToolbarView: View {
 
 	@ObservedObject private var preferences = Preferences.shared
 
-	private func isToolbarVisible(_ toolbar: Toolbar) -> Bool {
-		switch toolbar {
-		case .primary, .padPrimaryLeading, .padPrimaryTrailing:
-			return true
-		case .secondary:
-			return state.toggledKeys.contains(.more)
-		case .fnKeys:
-			return state.toggledKeys.contains(.fnKeys)
-		}
-	}
+
 
 	@ViewBuilder
 	var body: some View {
 		VStack(spacing: 0) {
 			ForEach(toolbars, id: \.self) { toolbar in
-				if isToolbarVisible(toolbar) {
+				if toolbar.isVisible(with: state.toggledKeys) {
 					let view = KeyboardToolbarKeyStack(delegate: delegate,
 																						 toolbar: toolbar)
 						.padding(.horizontal, 4)

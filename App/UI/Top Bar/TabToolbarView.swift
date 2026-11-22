@@ -28,28 +28,31 @@ struct TabToolbarView: View {
 
 	@EnvironmentObject private var state: TabToolbarState
 
-	@Environment(\.horizontalSizeClass)
-	private var horizontalSizeClass
+	static func usesSingleRow(width: CGFloat) -> Bool {
+		isBigDevice || width > 450
+	}
 
 	var body: some View {
-		if horizontalSizeClass == .compact {
-			VStack(spacing: 2) {
+		GeometryReader { bounds in
+			if !Self.usesSingleRow(width: bounds.size.width) {
+				VStack(spacing: 2) {
+					HStack(alignment: .center, spacing: 6) {
+						Color.clear
+							.frame(width: 3 + (Self.height + 6) * 3)
+						titleLabel
+						buttons
+					}
+						.frame(height: Self.height)
+					tabs
+						.frame(height: Self.height)
+				}
+			} else {
 				HStack(alignment: .center, spacing: 6) {
-					Color.clear
-						.frame(width: 3 + (Self.height + 6) * 3)
-					titleLabel
+					tabs
 					buttons
 				}
 					.frame(height: Self.height)
-				tabs
-					.frame(height: Self.height)
 			}
-		} else {
-			HStack(alignment: .center, spacing: 6) {
-				tabs
-				buttons
-			}
-				.frame(height: Self.height)
 		}
 	}
 
@@ -78,19 +81,19 @@ struct TabToolbarView: View {
 
 	private var buttons: some View {
 		HStack(spacing: 0) {
-				Button(action: { state.delegate?.openPasswordManager() },
+				Button(role: nil, action: { state.delegate?.openPasswordManager() },
 							 label: { Image(systemName: "key.fill") })
 					.squareFrame(sideLength: Self.height)
 					.padding(.horizontal, 3)
 					.accessibility(label: Text("Password Manager"))
 
-				Button(action: { state.delegate?.openSettings() },
+				Button(role: nil, action: { state.delegate?.openSettings() },
 							 label: { Image(systemName: "gear") })
 					.squareFrame(sideLength: Self.height)
 					.padding(.horizontal, 3)
 					.accessibility(label: Text("Settings"))
 
-				Button(action: { state.delegate?.addTerminal() },
+				Button(role: nil, action: { state.delegate?.addTerminal() },
 							 label: { Image(systemName: "plus") })
 					.squareFrame(sideLength: Self.height)
 					.padding(.horizontal, 3)
@@ -120,7 +123,7 @@ struct TabToolbarItemView: View {
 		}
 
 		return HStack(spacing: -2) {
-			Button(action: removeTerminal,
+			Button(role: nil, action: removeTerminal,
 						 label: {
 					switch true {
 					case terminal.hasBell:

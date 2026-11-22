@@ -97,6 +97,7 @@ class TerminalSessionViewController: BaseTerminalSplitViewControllerChild {
 			HUDView()
 				.environmentObject(self.hudState)
 		))
+		hudView.isUserInteractionEnabled = false
 		hudView.translatesAutoresizingMaskIntoConstraints = false
 		hudView.shouldResizeToFitContent = true
 		hudView.setContentHuggingPriority(.fittingSizeLevel, for: .horizontal)
@@ -530,7 +531,7 @@ extension TerminalSessionViewController: UIGestureRecognizerDelegate {
 	}
 
 	private func keyboardTop(in view: UIView) -> CGFloat? {
-		guard keyInput.isFirstResponder, let accessory = keyInput.inputAccessoryViewController?.viewIfLoaded,
+		guard keyInput.isFirstResponder, let accessory = keyInput.inputAccessoryView,
 			  accessory.window != nil, accessory.bounds.height > 0 else { return nil }
 		return accessory.convert(accessory.bounds, to: view).minY
 	}

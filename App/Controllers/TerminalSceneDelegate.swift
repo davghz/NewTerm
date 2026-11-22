@@ -20,7 +20,7 @@ class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate, IdentifiableSce
 	var window: UIWindow?
 
 	private var rootViewController: RootViewController! {
-		(window?.rootViewController as? UINavigationController)?.viewControllers.first as? RootViewController
+		window?.rootViewController as? RootViewController
 	}
 
 	override init() {
@@ -36,7 +36,7 @@ class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate, IdentifiableSce
 
 		window = UIWindow(windowScene: scene)
 		window!.tintColor = .tint
-		window!.rootViewController = UINavigationController(rootViewController: RootViewController())
+		window!.rootViewController = RootViewController()
 		window!.makeKeyAndVisible()
 
 		scene.title = .localize("TERMINAL", comment: "Generic title displayed before the terminal sets a proper title.")

@@ -75,7 +75,8 @@ class TerminalKeyInput: TextInputBase {
 		}
 	}
 
-	private var toolbar: KeyboardToolbarController!
+	private var toolbars: [Toolbar] = [.fnKeys, .secondary]
+	private lazy var toolbar = makeToolbar()
 	private var passwordInputView: TerminalPasswordInputView?
 
 	private var previousFloatingCursorPoint: CGPoint? = nil
@@ -95,7 +96,6 @@ class TerminalKeyInput: TextInputBase {
 		smartDashesType = .no
 		smartInsertDeleteType = .no
 
-		var toolbars: [Toolbar] = [.fnKeys, .secondary]
 		if UIDevice.current.userInterfaceIdiom == .pad {
 			let leadingView = KeyboardToolbarPadItemView(delegate: self,
 																									 toolbar: .padPrimaryLeading,
@@ -116,12 +116,14 @@ class TerminalKeyInput: TextInputBase {
 			toolbars += [.primary]
 		}
 
-		toolbar = KeyboardToolbarController(delegate: self,
-																			 toolbars: toolbars,
-																			 state: state)
+	}
+
+	private func makeToolbar() -> KeyboardToolbarInputView {
+		let toolbar = KeyboardToolbarInputView(delegate: self, toolbars: toolbars, state: state)
 		let dismissSwipe = UISwipeGestureRecognizer(target: self, action: #selector(dismissAccessoryKeyboard))
 		dismissSwipe.direction = .down
-		toolbar.view.addGestureRecognizer(dismissSwipe)
+		toolbar.addGestureRecognizer(dismissSwipe)
+		return toolbar
 	}
 
 	@objc private func dismissAccessoryKeyboard() {
@@ -132,7 +134,12 @@ class TerminalKeyInput: TextInputBase {
 		fatalError("init(coder:) has not been implemented")
 	}
 
-	override var inputAccessoryViewController: UIInputViewController? { toolbar }
+	override var inputAccessoryView: UIView? {
+		if toolbar.window == nil, let width = window?.bounds.width {
+			toolbar.frame.size.width = width
+		}
+		return toolbar
+	}
 
 	// MARK: - Password manager
 
@@ -468,7 +475,8 @@ extension TerminalKeyInput: KeyboardToolbarViewDelegate {
 
 		if key == .more { state.toggledKeys.remove(.fnKeys) }
 		if key == .more || key == .fnKeys {
-			// Ask the keyboard window to reserve the new accessory height.
+			// iOS 15 caches the height of an attached accessory across reloads.
+			toolbar = makeToolbar()
 			reloadInputViews()
 			NotificationCenter.default.post(name: .terminalKeyboardToolbarLayoutDidChange, object: nil)
 		}

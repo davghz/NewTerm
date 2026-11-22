@@ -31,7 +31,7 @@ The Xcode project builds with the latest release of Xcode, once Swift Package Ma
 
 The most convenient way to test the app is by building for the “My Mac” target. For debugging iOS-specific functionality, a mostly-functional terminal does work in the Simulator. It will spawn with a weird prompt that says “I have no name!”, as Simulator seems to block access to macOS’s Open Directory user database. However, you should still be able to do everything your logged-in macOS user can do.
 
-To install on a jailbroken device, first [set up Theos](https://git.io/theosinstall). Then, you can run `make do` in the root of the repo.
+To build the arm64 package for rootless iOS 15.1.1 and later, install Xcode, `ldid`, and `dpkg` on your Mac. Run `.github/scripts/package-rootless.sh` from the repository root. The Debian package and its SHA-256 checksum are written to `packages/`.
 
 ## License
 Licensed under the Apache License, version 2.0. Refer to [LICENSE.md](LICENSE.md).

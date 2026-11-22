@@ -74,7 +74,8 @@ open class StringSupplier {
 			views.reduce(AnyView(EmptyView()), { $0 + $1 })
 		}
 			.frame(minHeight: lineHeight, maxHeight: lineHeight, alignment: .leading)
-			.frame(maxWidth: .infinity, alignment: .leading))
+			.frame(maxWidth: .infinity, alignment: .leading)
+			.background(Color(colorMap.background)))
 	}
 
 	private func text(_ run: String, attribute: Attribute, isCursor: Bool = false) -> AnyView {
@@ -122,8 +123,8 @@ open class StringSupplier {
 				// View attributes
 				.allowsTightening(false)
 				.lineLimit(1)
-				.background(Color(background ?? .black))
 				.frame(width: width, height: lineHeight, alignment: .leading)
+				.background(Color(background ?? .black))
 		)
 	}
 

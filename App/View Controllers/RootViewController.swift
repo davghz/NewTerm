@@ -24,8 +24,6 @@ class RootViewController: UIViewController {
 	override func viewDidLoad() {
 		super.viewDidLoad()
 
-		navigationController!.isNavigationBarHidden = true
-
 		#if !targetEnvironment(macCatalyst)
 		tabToolbar = TabToolbarViewController()
 		tabToolbar!.view.autoresizingMask = [.flexibleWidth]
@@ -33,6 +31,7 @@ class RootViewController: UIViewController {
 		tabToolbar!.dataSource = self
 		addChild(tabToolbar!)
 		view.addSubview(tabToolbar!.view)
+		tabToolbar!.didMove(toParent: self)
 		#endif
 
 		addTerminal()
@@ -102,8 +101,8 @@ class RootViewController: UIViewController {
 
 		// TODO: Cleanup
 		#if !targetEnvironment(macCatalyst)
-		let isWide = isBigDevice || view.frame.size.width > 450
-		let topBarHeight: CGFloat = isWide ? 33 : 66
+		let width = view.safeAreaLayoutGuide.layoutFrame.width
+		let topBarHeight: CGFloat = TabToolbarView.usesSingleRow(width: width) ? 33 : 66
 		tabToolbar?.view.frame = CGRect(x: 0, y: 0, width: view.frame.size.width, height: view.safeAreaInsets.top + topBarHeight)
 
 		for viewController in terminals {
@@ -398,7 +397,7 @@ extension RootViewController: TabToolbarDelegate {
 			if presentedViewController == nil {
 				let viewController = UIHostingController(rootView: SettingsView())
 				viewController.modalPresentationStyle = .formSheet
-				navigationController?.present(viewController, animated: true, completion: nil)
+				present(viewController, animated: true, completion: nil)
 			}
 		}
 	}

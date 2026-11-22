@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import SwiftUIX
 
 class HUDViewState: ObservableObject {
 	@Published var isVisible = false
@@ -16,23 +15,19 @@ struct HUDView: View {
 	@EnvironmentObject private var state: HUDViewState
 
 	var body: some View {
-		VisualEffectBlurView(blurStyle: .systemMaterial,
-												 vibrancyStyle: .label) {
-			Image(systemName: .bell)
+		if state.isVisible {
+			Image(systemName: "bell")
 				.font(.system(size: 25, weight: .medium))
 				.imageScale(.large)
-				.foregroundColor(.label)
-			}
 				.frame(width: 54, height: 54)
-				.cornerRadius(16, style: .continuous)
-				.visible(state.isVisible, animation: state.isVisible ? nil : .linear(duration: 0.3))
-				.onReceive(state.$isVisible) { isVisible in
-					if isVisible {
-						Timer.scheduledTimer(withTimeInterval: 0.75, repeats: false) { _ in
-							self.state.isVisible = false
-						}
+				.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+				.task {
+					do {
+						try await Task.sleep(nanoseconds: 750_000_000)
+						withAnimation(.linear(duration: 0.3)) { state.isVisible = false }
+					} catch { /* The HUD was removed. */ }
 				}
-			}
+		}
 	}
 }
 

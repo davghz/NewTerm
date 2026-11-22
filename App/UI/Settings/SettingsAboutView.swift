@@ -46,7 +46,7 @@ struct SettingsAboutView: View {
 						.padding(EdgeInsets(top: 5, leading: 15, bottom: 5, trailing: 15))
 						.font(.system(size: 14))
 
-						Button(action: { openURL(supportURL.url!) },
+						Button(role: nil, action: { openURL(supportURL.url!) },
 									 label: {
 							HStack {
 								IconView(icon: Image(systemName: "envelope").resizable(),
@@ -63,7 +63,7 @@ struct SettingsAboutView: View {
 						.padding(EdgeInsets(top: 5, leading: 15, bottom: 5, trailing: 15))
 						.font(.system(size: 14))
 
-						Button(action: { openURL(URL(string: "https://hashbang.productions/donate/")!) },
+						Button(role: nil, action: { openURL(URL(string: "https://hashbang.productions/donate/")!) },
 									 label: {
 							HStack {
 								IconView(icon: Image(systemName: "heart").resizable(),
@@ -73,7 +73,7 @@ struct SettingsAboutView: View {
 						})
 							.buttonStyle(GroupedButtonStyle())
 
-						Button(action: { showingShare.toggle() },
+						Button(role: nil, action: { showingShare.toggle() },
 									 label: {
 							HStack {
 								IconView(icon: Image(systemName: "square.and.arrow.up").resizable(),
@@ -105,7 +105,7 @@ struct SettingsAboutView: View {
 					.padding(15)
 					.fixedSize(horizontal: false, vertical: true)
 
-					Button(action: { openURL(URL(string: "https://hashbang.productions/")!) },
+					Button(role: nil, action: { openURL(URL(string: "https://hashbang.productions/")!) },
 								 label: {
 						VStack {
 							Image("hashbang")
