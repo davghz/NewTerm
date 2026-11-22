@@ -45,8 +45,50 @@ class TextInputBase: UIView, UIKeyInput, UITextInput, UITextInputTraits {
 
 	var hasText: Bool { false }
 
-	func insertText(_ text: String) {}
+	// UIKit can insert a word separator and the recognized text as separate
+	// callbacks, then identify the completed dictation by its placeholder.
+	private var dictationPlaceholders = Set<ObjectIdentifier>()
+	private var pendingInsertions = [String]()
+	var needsDictationSeparator: Bool { false }
+
+	func insertText(_ text: String) {
+		if !pendingInsertions.isEmpty {
+			pendingInsertions.append(text)
+		} else if text == " " && !dictationPlaceholders.isEmpty && !needsDictationSeparator {
+			pendingInsertions = [text]
+			// Ordinary typing while recognition is pending must still be delivered.
+			DispatchQueue.main.async { [weak self] in self?.flushPendingInsertions() }
+		} else {
+			sendTextToTerminal(text)
+		}
+	}
+
+	func sendTextToTerminal(_ text: String) {}
+
+	func flushPendingInsertions(committingDictation: Bool = false) {
+		let skipSeparator = committingDictation && pendingInsertions.count > 1
+		let insertions = pendingInsertions.dropFirst(skipSeparator ? 1 : 0)
+		pendingInsertions.removeAll()
+		for text in insertions { sendTextToTerminal(text) }
+	}
 	func deleteBackward() {}
+
+	// A terminal cannot replace a placeholder after its bytes have reached the PTY.
+	// Give UIKit an opaque token for each pending result and keep the stream untouched.
+	var insertDictationResultPlaceholder: Any {
+		let token = NSObject()
+		dictationPlaceholders.insert(ObjectIdentifier(token))
+		return token
+	}
+
+	func frame(forDictationResultPlaceholder placeholder: Any) -> CGRect {
+		caretRect(for: endOfDocument)
+	}
+
+	func removeDictationResultPlaceholder(_ placeholder: Any, willInsertResult: Bool) {
+		guard dictationPlaceholders.remove(ObjectIdentifier(placeholder as AnyObject)) != nil else { return }
+		flushPendingInsertions(committingDictation: willInsertResult)
+	}
 
 	func text(in range: UITextRange) -> String? { nil }
 	func replace(_ range: UITextRange, withText text: String) {}

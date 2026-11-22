@@ -160,7 +160,11 @@ class TerminalKeyInput: TextInputBase {
 
 	override var hasText: Bool { true }
 
-	override func insertText(_ text: String) {
+	override var needsDictationSeparator: Bool {
+		terminalInputDelegate?.hasNonblankBeforeCursor ?? false
+	}
+
+	override func sendTextToTerminal(_ text: String) {
 		// Used by the software keyboard only. See pressesBegan(_:with:) below for hardware keyboard.
 		let isCtrlDown = state.toggledKeys.remove(.control) != nil
 		let isShiftDown = state.toggledKeys.remove(.shift) != nil
@@ -189,6 +193,7 @@ class TerminalKeyInput: TextInputBase {
 	}
 
 	override func deleteBackward() {
+		flushPendingInsertions()
 		state.toggledKeys.remove(.shift)
 		terminalInputDelegate!.receiveKeyboardInput(data: EscapeSequences.backspace)
 	}

@@ -2,21 +2,22 @@
 
 ![NewTerm](assets/banner.jpg)
 
-NewTerm is a terminal emulator with tabs on iPhone and split panes on iPad. This repository packages the NewTerm 3 beta for **rootless iOS 15**, starting at **15.1.1**. Revision 6 was tested on an iPhone X running iOS 15.6.1.
+NewTerm is a terminal emulator with tabs on iPhone and split panes on iPad. This repository packages the NewTerm 3 beta for **rootless iOS 15**, starting at **15.1.1**. Revision 7 was tested on an iPhone X running iOS 15.6.1.
 
 ## Install
 
 Download the `iphoneos-arm64.deb` from the latest release, open it in your jailbreak package manager, and install it. If NewTerm is already running, finish your shell sessions before closing and reopening the app. [Download NewTerm](https://github.com/davghz/NewTerm/releases/latest)
 
-To install revision 6 from a shell, run this in the directory containing the downloaded package and its matching `.sha256` file.
+To install revision 7 from a shell, run this in the directory containing the downloaded package and its matching `.sha256` file.
 
 ```sh
-deb=ws.hbang.newterm3_3.0.beta1+ios15.1.1-6_iphoneos-arm64.deb
+deb=ws.hbang.newterm3_3.0.beta1+ios15.1.1-7_iphoneos-arm64.deb
 sha256sum -c "$deb.sha256" && sudo apt install "./$deb"
 ```
 
 ## Use the keyboard and tabs
 
+- Tap the iOS keyboard microphone to dictate at the terminal cursor.
 - Tap **Shift** to modify the next key. **Ctrl**, **Esc**, and the arrow keys are also on the main toolbar.
 - Tap **More** to reach **Tab**, **Paste**, and the navigation keys. In OpenCode, **Paste** inserts text or attaches a clipboard image to your prompt. Tap **Fn** in the expanded row to show the function keys.
 - Swipe down on the toolbar with one finger to dismiss the keyboard. Tap the terminal to bring it back.

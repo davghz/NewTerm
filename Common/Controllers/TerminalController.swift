@@ -407,6 +407,19 @@ extension TerminalController: TerminalDelegate {
 
 extension TerminalController: TerminalInputProtocol {
 
+	public var hasNonblankBeforeCursor: Bool {
+		terminalQueue.sync {
+			guard let terminal = self.terminal else { return false }
+			let cursor = terminal.getCursorLocation()
+			guard let line = terminal.getLine(row: cursor.y) else { return false }
+			var col = min(cursor.x, line.count) - 1
+			guard col >= 0 else { return false }
+			if col > 0 && line.getWidth(index: col - 1) == 2 { col -= 1 }
+			let character = line[col].getCharacter()
+			return character != "\0" && !character.isWhitespace
+		}
+	}
+
 	public var applicationCursor: Bool { terminal?.applicationCursor ?? false }
 
 	public var handlesControlVPaste: Bool { subProcess?.foregroundIsCodex ?? false }
