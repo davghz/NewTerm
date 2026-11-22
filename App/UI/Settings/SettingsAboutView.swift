@@ -25,7 +25,7 @@ struct SettingsAboutView: View {
 	}
 
 	var body: some View {
-		let supportURL = URL(string: "https://github.com/davghz/NewTerm/issues")!
+		let supportURL = URL(string: "https://github.com/davghz/t3rm/issues")!
 
 		let guts = ScrollView {
 			VStack(spacing: 15) {
@@ -82,7 +82,7 @@ struct SettingsAboutView: View {
 						.activityView(isPresented: $showingShare,
 													activityItems: [
 														String.localize("t3rm for rootless iOS 15"),
-														URL(string: "https://github.com/davghz/NewTerm")!
+														URL(string: "https://github.com/davghz/t3rm")!
 													])
 				}
 
