@@ -23,6 +23,77 @@ public protocol TerminalControllerDelegate: AnyObject {
 	func didReceiveError(error: Error)
 }
 
+struct TerminalLineCache<Line> {
+	private var lines = [Line]()
+	private var previousCursor = (x: -1, y: -1)
+	private var firstRow = 0
+	private var normalBufferOrigin = 0
+
+	mutating func bufferActivated() {
+		lines.removeAll(keepingCapacity: true)
+		previousCursor = (-1, -1)
+	}
+
+	mutating func scrolled(_ terminal: Terminal, top: Int) {
+		// SwiftTerm's bounded normal buffer drops one history line when it is full.
+		// Its invariant line accessor still uses the original, untrimmed indices.
+		guard top > 0 else { return }
+		if normalBufferOrigin > 0 && terminal.getScrollInvariantLine(row: 0) != nil {
+			normalBufferOrigin = 0
+		}
+		if terminal.getScrollInvariantLine(row: normalBufferOrigin) == nil {
+			normalBufferOrigin += 1
+		}
+	}
+
+	mutating func refresh(_ terminal: Terminal, render: (Int, BufferLine?) -> Line) -> [Line]? {
+		let top = terminal.getTopVisibleRow()
+		let count = top + terminal.rows
+		let origin = top == 0 ? 0 : normalBufferOrigin
+		let dirty = terminal.getScrollInvariantUpdateRange()
+		var cursor = terminal.getCursorLocation()
+		cursor.y += top
+		guard dirty != nil || cursor != previousCursor || count != lines.count || origin != firstRow else {
+			return nil
+		}
+		terminal.clearUpdateRange()
+
+		if origin != firstRow {
+			let removed = origin > firstRow ? min(origin - firstRow, lines.count) : lines.count
+			lines.removeFirst(removed)
+			previousCursor.y -= removed
+			firstRow = origin
+		}
+		if lines.count > count {
+			lines.removeSubrange(count...)
+		}
+
+		// Full refreshes can include a one-past-the-end row. Row zero by itself
+		// is also a valid dirty range. Keep exactly the retained terminal rows.
+		var updates = IndexSet()
+		if let dirty = dirty {
+			let start = max(0, dirty.startY)
+			let end = min(dirty.endY, lines.count - 1)
+			if start <= end { updates.insert(integersIn: start...end) }
+		}
+		if cursor != previousCursor {
+			for row in [previousCursor.y, cursor.y] where lines.indices.contains(row) {
+				updates.insert(row)
+			}
+		}
+		func renderLine(at row: Int) -> Line {
+			let line = row >= top
+				? terminal.getLine(row: row - top)
+				: terminal.getScrollInvariantLine(row: origin + row)
+			return render(row, line)
+		}
+		for row in updates { lines[row] = renderLine(at: row) }
+		for row in lines.count..<count { lines.append(renderLine(at: row)) }
+		previousCursor = cursor
+		return lines
+	}
+}
+
 public class TerminalController {
 
 	public weak var delegate: TerminalControllerDelegate?
@@ -40,7 +111,7 @@ public class TerminalController {
 	private var subProcess: SubProcess?
 	private var subProcessFailureError: Error?
 	private let stringSupplier = StringSupplier()
-	private var lines = [AnyView]()
+	private var lineCache = TerminalLineCache<AnyView>()
 
 	private var processLaunchDate: Date?
 	private var updateTimer: CADisplayLink?
@@ -63,7 +134,6 @@ public class TerminalController {
 	}
 	public var scrollbackLines: Int { terminal?.getTopVisibleRow() ?? 0 }
 
-	private var lastCursorLocation: (x: Int, y: Int) = (-1, -1)
 	private var lastBellDate: Date?
 
 	internal var title: String?
@@ -222,46 +292,13 @@ public class TerminalController {
 				return
 			}
 
-			let scrollbackRows = terminal.getTopVisibleRow()
-			var cursorLocation = terminal.getCursorLocation()
-			cursorLocation.y += scrollbackRows
-
-			let updateRange = terminal.getScrollInvariantUpdateRange() ?? (0, 0)
-			if updateRange == (0, 0) && cursorLocation == self.lastCursorLocation {
-				// Nothing changed, nothing to do.
-				return
-			}
-			terminal.clearUpdateRange()
-
-			let scrollInvariantRows = scrollbackRows + terminal.rows
-
-			// Remove lines that no longer exist
-			if self.lines.count > scrollInvariantRows {
-				self.lines.removeSubrange((scrollInvariantRows - 1)...)
-			}
-
-			// Add new lines that have been introduced
-			while self.lines.count <= max(updateRange.endY, scrollInvariantRows) {
-				self.lines.append(AnyView(EmptyView()))
-			}
-
-			// Update lines that changed
-			var linesToUpdate = updateRange == (0, 0) ? Set() : Set(updateRange.startY...updateRange.endY)
-			if cursorLocation != self.lastCursorLocation {
-				linesToUpdate.insert(cursorLocation.y)
-				if self.lastCursorLocation.y != -1 && self.lastCursorLocation.y < scrollInvariantRows {
-					linesToUpdate.insert(self.lastCursorLocation.y)
-				}
-			}
-
-			for i in linesToUpdate {
-				self.lines[i] = self.stringSupplier.attributedString(forScrollInvariantRow: i)
-			}
-
-			self.lastCursorLocation = cursorLocation
+			guard let frame = self.lineCache.refresh(terminal, render: { row, line in
+				self.stringSupplier.attributedString(forScrollInvariantRow: row, line: line)
+			}) else { return }
 
 			DispatchQueue.main.async {
-				self.delegate?.refresh(lines: &self.lines)
+				var snapshot = frame
+				self.delegate?.refresh(lines: &snapshot)
 
 				if !self.isVisible && !self.isDirty {
 					self.isDirty = true
@@ -333,6 +370,14 @@ public class TerminalController {
 }
 
 extension TerminalController: TerminalDelegate {
+
+	public func bufferActivated(source: Terminal) {
+		lineCache.bufferActivated()
+	}
+
+	public func scrolled(source: Terminal, yDisp: Int) {
+		lineCache.scrolled(source, top: yDisp)
+	}
 
 	public func isProcessTrusted(source: Terminal) -> Bool { isLocalhost }
 

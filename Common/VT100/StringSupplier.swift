@@ -25,16 +25,16 @@ open class StringSupplier {
 	public init() {}
 
 	public func attributedString(forScrollInvariantRow row: Int) -> AnyView {
-		guard let terminal = terminal else {
-			fatalError()
-		}
+		attributedString(forScrollInvariantRow: row, line: terminal.getScrollInvariantLine(row: row))
+	}
 
-		guard let line = terminal.getScrollInvariantLine(row: row) else {
+	func attributedString(forScrollInvariantRow row: Int, line: BufferLine?) -> AnyView {
+		let scrollbackRows = terminal.getTopVisibleRow()
+		guard let line = line else {
 			return AnyView(EmptyView())
 		}
 
 		let cursorPosition = terminal.getCursorLocation()
-		let scrollbackRows = terminal.getTopVisibleRow()
 
 		var lastAttribute = Attribute.empty
 		var views = [AnyView]()
