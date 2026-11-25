@@ -9,7 +9,8 @@ final class InteractionTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(terminal.waitForExistence(timeout: 8))
+        XCTAssertTrue(terminal.waitForExistence(timeout: 15))
+        waitForShell(in: terminal)
     }
     override func tearDown() { XCUIDevice.shared.orientation = .portrait; super.tearDown() }
     private func screenContains(_ text: String, in element: XCUIElement? = nil, timeout: TimeInterval = 8) -> Bool {
@@ -18,6 +19,10 @@ final class InteractionTests: XCTestCase {
         return XCTWaiter.wait(for: [wait], timeout: timeout) == .completed
     }
     private func command(_ text: String) { app.typeText(text + "\n") }
+    private func waitForShell(in element: XCUIElement) {
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value MATCHES %@", "(?s).*\\S.*"), object: element)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 45), .completed, "No initial shell output. \(app.debugDescription)")
+    }
     private func attachScreen(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
@@ -47,10 +52,11 @@ final class InteractionTests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         let settings = app.buttons["t3rm.settings"]
         let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _,_ in
-            app.frame.width > app.frame.height && settings.frame.minY >= 0 && settings.frame.maxX <= app.frame.width &&
+            settings.exists && terminal.exists && app.frame.width > app.frame.height &&
+                settings.frame.minY >= 0 && settings.frame.maxX <= app.frame.width &&
                 terminal.frame.width > terminal.frame.height && settings.isHittable
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 5), .completed)
+        XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 15), .completed, app.debugDescription)
         attachScreen("Landscape with keyboard")
         settings.tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
@@ -64,6 +70,7 @@ final class InteractionTests: XCTestCase {
         app.buttons["t3rm.newTab"].tap()
         let second = app.buttons["t3rm.tab.2"]
         XCTAssertTrue(second.waitForExistence(timeout: 5))
+        waitForShell(in: terminal)
         terminal.tap()
         command("printf '%s%s\\n' second- ready")
         XCTAssertTrue(screenContains("second-ready"))
@@ -120,8 +127,6 @@ final class InteractionTests: XCTestCase {
 
     func testCustomPromptAndLiteralPercent() {
         terminal.tap()
-        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value MATCHES %@", "(?s).*\\S.*"), object: terminal)
-        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 20), .completed, "The login shell did not display its first output.")
         // Use a clean interactive shell so the host's prompt hooks cannot replace this fixture.
         command("exec /usr/bin/env PROMPT='ca''se%%> ' /bin/zsh -dfi")
         let customPrompt = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value ENDSWITH %@", "case%>"), object: terminal)

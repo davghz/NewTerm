@@ -43,7 +43,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        family: [iPhone, iPad]
+        include:
+          - family: iPhone
+            device: iPhone 16
+          - family: iPad
+            device: iPad Pro 11-inch (M4)
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode and install XcodeGen
@@ -53,11 +57,11 @@ jobs:
       - name: Test terminal workspace
         working-directory: Independent
         env:
-          FAMILY: ${{ matrix.family }}
+          DEVICE: ${{ matrix.device }}
         run: |
           set -euo pipefail
           xcodegen generate --spec project.yml
-          device=$(xcrun simctl list -j devices available | python3 -c 'import json,sys; print(next(d["udid"] for devices in reversed(list(json.load(sys.stdin)["devices"].values())) for d in devices if d["name"].startswith(sys.argv[1])))' "$FAMILY")
+          device=$(xcrun simctl list -j devices available 'iOS 18.6' | python3 -c 'import json,sys; print(next(d["udid"] for group in json.load(sys.stdin)["devices"].values() for d in group if d["name"] == sys.argv[1]))' "$DEVICE")
           xcrun simctl bootstatus "$device" -b
           xcodebuild -project T3rm.xcodeproj -scheme T3rm \
             -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO \

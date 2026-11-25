@@ -1,4 +1,5 @@
 #include "T3PTY.h"
+#include <TargetConditionals.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -144,8 +145,15 @@ static int spawn_launcher(pid_t *pid, const char *launcher, const char *shell,
 
 static int check_launcher(int fd, t3_failure *failure) {
     struct pollfd status = {.fd = fd, .events = POLLIN};
+#if TARGET_OS_SIMULATOR
+    // CoreSimulator launches the UIKit app executable again for the PTY helper.
+    // Loading it on a cold simulator can take longer than the native C helper.
+    const int timeout_ms = 30000;
+#else
+    const int timeout_ms = 5000;
+#endif
     int ready;
-    do { ready = poll(&status, 1, 5000); } while (ready < 0 && errno == EINTR);
+    do { ready = poll(&status, 1, timeout_ms); } while (ready < 0 && errno == EINTR);
     if (ready <= 0) {
         *failure = (t3_failure){T3_HANDSHAKE, ready == 0 ? ETIMEDOUT : errno};
         return -1;

@@ -57,7 +57,7 @@ final class TerminalModel {
                 try session.start(directory: directory, columns: columns, rows: rows, onData: { [weak self] bytes in
                     self?.receive(bytes)
                 }, onExit: { [weak self] code in
-                    self?.end("Session ended (\(code))")
+                    self?.queue.async { [weak self] in self?.end("Session ended (\(code))") }
                 })
             } catch {
                 end("Unable to start shell. \(error.localizedDescription)")
@@ -67,11 +67,10 @@ final class TerminalModel {
     }
 
     private func end(_ reason: String) {
-        queue.async { [self] in
-            guard !observedEnd && !closed else { return }
-            observedEnd = true
-            DispatchQueue.main.async { [weak self] in self?.onExit?(reason) }
-        }
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard !observedEnd && !closed else { return }
+        observedEnd = true
+        DispatchQueue.main.async { [weak self] in self?.onExit?(reason) }
     }
 
     private func receive(_ bytes: Data) {
