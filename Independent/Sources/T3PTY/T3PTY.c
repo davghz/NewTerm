@@ -100,7 +100,7 @@ static int reserve_source(int *source) {
 }
 
 static int spawn_launcher(pid_t *pid, const char *launcher, const char *shell,
-                          const char *directory, int slave, int report) {
+                          const char *directory, const char *locale, int slave, int report) {
     posix_spawn_file_actions_t files;
     int error = posix_spawn_file_actions_init(&files);
     if (error) return error;
@@ -123,7 +123,7 @@ static int spawn_launcher(pid_t *pid, const char *launcher, const char *shell,
     if (!error) error = posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT |
                                                   POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK);
     if (!error) {
-        char *args[] = {(char *)launcher, (char *)shell, (char *)directory, NULL};
+        char *args[] = {(char *)launcher, (char *)shell, (char *)directory, (char *)locale, NULL};
         error = posix_spawn(pid, launcher, &files, &attributes, args, environ);
     }
     posix_spawnattr_destroy(&attributes);
@@ -147,7 +147,7 @@ static int check_launcher(int fd, t3_failure *failure) {
     return -1;
 }
 
-int t3_start(const char *launcher, const char *shell, const char *directory,
+int t3_start(const char *launcher, const char *shell, const char *directory, const char *locale,
              uint16_t columns, uint16_t rows, t3_pty *result, t3_failure *failure) {
     t3_pty pty = {-1, -1, -1, -1};
     int report[2] = {-1, -1};
@@ -176,7 +176,7 @@ int t3_start(const char *launcher, const char *shell, const char *directory,
     failure->stage = T3_SPAWN;
     if (pipe(report) < 0 || fcntl(report[0], F_SETFD, FD_CLOEXEC) < 0 ||
         reserve_source(&report[1]) < 0) goto fail_errno;
-    error = spawn_launcher(&pty.child, launcher, shell, directory, pty.slave, report[1]);
+    error = spawn_launcher(&pty.child, launcher, shell, directory, locale, pty.slave, report[1]);
     if (error) {
         pty.child = -1;
         failure->number = error;

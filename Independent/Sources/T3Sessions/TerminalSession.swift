@@ -34,7 +34,7 @@ public final class TerminalSession {
         var terminal = t3_pty()
         var failure = t3_failure()
         let size = TerminalSize(columns: columns, rows: rows)
-        guard t3_start(launcher, shell, directory ?? "", size.columns, size.rows, &terminal, &failure) == 0 else {
+        guard t3_start(launcher, shell, directory ?? "", Self.loginLocale, size.columns, size.rows, &terminal, &failure) == 0 else {
             let operation = String(cString: t3_operation(failure))
             let reason = String(cString: strerror(failure.number))
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(failure.number),
@@ -45,10 +45,29 @@ public final class TerminalSession {
         worker.start()
     }
 
+    private static var loginLocale: String {
+        let requested = UserDefaults.standard.string(forKey: "preferredLocale") ?? ""
+        let locale = Locale(identifier: requested.isEmpty ? Locale.current.identifier : requested)
+        guard let language = locale.languageCode, language.utf8.count <= 8 else { return "en_US.UTF-8" }
+        return [language, locale.regionCode].compactMap { $0 }.joined(separator: "_") + ".UTF-8"
+    }
+
     private static var defaultShell: String {
         #if os(iOS) && !targetEnvironment(simulator)
-        let candidates = ["/var/jb/bin/zsh", "/var/jb/usr/bin/zsh", "/var/jb/bin/bash",
-                          "/var/jb/usr/bin/bash", "/var/jb/bin/sh", "/var/jb/usr/bin/sh", "/bin/sh"]
+        // The rootless bootstrap has a separate login-shell database for mobile.
+        var candidates = [String]()
+        if let accounts = try? String(contentsOfFile: "/var/jb/etc/passwd", encoding: .utf8) {
+            for line in accounts.split(separator: "\n") {
+                let fields = line.split(separator: ":", omittingEmptySubsequences: false)
+                if fields.count == 7, UInt32(fields[2]) == getuid(), fields[6].hasPrefix("/") {
+                    let configured = String(fields[6])
+                    if !configured.hasPrefix("/var/jb/") { candidates.append("/var/jb" + configured) }
+                    candidates.append(configured)
+                    break
+                }
+            }
+        }
+        candidates += ["/var/jb/usr/bin/zsh", "/var/jb/usr/bin/bash", "/var/jb/usr/bin/fish", "/var/jb/bin/sh"]
         #else
         let candidates = [ProcessInfo.processInfo.environment["SHELL"] ?? "", "/bin/zsh", "/bin/sh"]
         #endif

@@ -11,7 +11,7 @@ typedef struct {
 } t3_pty;
 
 /* The parent owns all three descriptors and is responsible for reaping child. */
-int t3_start(const char *launcher, const char *shell, const char *directory,
+int t3_start(const char *launcher, const char *shell, const char *directory, const char *locale,
              uint16_t columns, uint16_t rows, t3_pty *pty, t3_failure *failure);
 const char *t3_operation(t3_failure failure);
 int t3_resize(int fd, uint16_t columns, uint16_t rows);

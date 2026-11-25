@@ -21,7 +21,7 @@ static void environment(const char *name, const char *value) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3 || fcntl(T3_LAUNCH_STATUS_FD, F_SETFD, FD_CLOEXEC) < 0) return 126;
+    if (argc != 4 || fcntl(T3_LAUNCH_STATUS_FD, F_SETFD, FD_CLOEXEC) < 0) return 126;
     if (setsid() < 0 || ioctl(STDIN_FILENO, TIOCSCTTY, 0) < 0 ||
         tcsetpgrp(STDIN_FILENO, getpgrp()) < 0) fail(T3_TERMINAL);
 
@@ -38,6 +38,7 @@ int main(int argc, char **argv) {
     environment("TERM_PROGRAM", "t3rm");
     environment("LC_TERMINAL", "t3rm");
     environment("SHELL", shell);
+    if (*argv[3]) environment("LANG", argv[3]);
 #if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     environment("PATH", "/var/jb/usr/local/bin:/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin");
 #endif
@@ -45,7 +46,7 @@ int main(int argc, char **argv) {
     if (chdir(directory && *directory ? directory : "/") < 0) fail(T3_DIRECTORY);
     unsetenv("PWD"); /* the shell computes PWD from its new directory */
     const char *name = strrchr(shell, '/');
-    execl(shell, name ? name + 1 : shell, "-i", (char *)NULL);
+    execl(shell, name ? name + 1 : shell, "-l", "-i", (char *)NULL);
     fail(T3_EXEC);
     return 126;
 }
