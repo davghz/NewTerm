@@ -13,7 +13,7 @@ startup = Path(__file__).resolve().parents[1] / "ShellStartup"
 for custom in (False, True):
     with tempfile.TemporaryDirectory() as home:
         if custom:
-            (Path(home) / ".zshrc").write_text("PROMPT='custom > '\n")
+            (Path(home) / ".zshrc").write_text("PROMPT='custom%%> '\n")
         env = dict(os.environ, HOME=home, ZDOTDIR=str(startup), T3RM_HAD_ZDOTDIR="1",
                    T3RM_ORIGINAL_ZDOTDIR=home, PROMPT_EOL_MARK="", TERM="xterm-256color",
                    PROMPT="%m%::%~ %n%# ", HISTFILE="/dev/null")
@@ -32,8 +32,9 @@ for custom in (False, True):
                     raise AssertionError(f"Missing {expected!r} in zsh PTY")
                 return data
 
-            prompt = until(b"custom > " if custom else b" > ")
-            assert b"%" not in prompt, "Default prompt still contains a percent sign"
+            prompt = until(b"custom%> " if custom else b" > ")
+            if not custom:
+                assert b"%" not in prompt, "Default prompt still contains a percent sign"
             os.write(master, b"printf 'literal%s\\n' '100%'\r")
             until(b"literal100%")
         finally:

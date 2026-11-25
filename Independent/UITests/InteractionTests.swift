@@ -120,10 +120,14 @@ final class InteractionTests: XCTestCase {
 
     func testCustomPromptAndLiteralPercent() {
         terminal.tap()
-        command("if [ -n \"$ZSH_VERSION\" ]; then PROMPT='ca''se%%> '; else PS1='ca''se%> '; fi")
-        XCTAssertTrue(screenContains("case%>"))
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value MATCHES %@", "(?s).*\\S.*"), object: terminal)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 20), .completed, "The login shell did not display its first output.")
+        // Use a clean interactive shell so the host's prompt hooks cannot replace this fixture.
+        command("exec /usr/bin/env PROMPT='ca''se%%> ' /bin/zsh -dfi")
+        let customPrompt = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value ENDSWITH %@", "case%>"), object: terminal)
+        XCTAssertEqual(XCTWaiter.wait(for: [customPrompt], timeout: 25), .completed, "Visible terminal text: \(terminal.value as? String ?? "")")
         command("printf '%s%s\\n' 'file ' '100%'")
-        XCTAssertTrue(screenContains("file 100%"))
+        XCTAssertTrue(screenContains("file 100%"), "Visible terminal text: \(terminal.value as? String ?? "")")
     }
 
     func testShellTransferPromptsAndUploadCancellation() {
