@@ -1,0 +1,4 @@
+t3rm is maintained by davghz. All rights are reserved in copyrightable original contributions by their respective rights holders.
+This notice applies to the independent t3rm app and terminal engine. Earlier NewTerm-derived releases remain under their accompanying licenses.
+The app uses Apple system frameworks and the system zlib library. Neither is redistributed in this package.
+Source and support: https://github.com/davghz/t3rm

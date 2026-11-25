@@ -1,0 +1,65 @@
+name: T3rm
+options:
+  bundleIdPrefix: com.davghz
+  deploymentTarget:
+    iOS: "15.1.1"
+  createIntermediateGroups: true
+packages:
+  T3rmKit:
+    path: .
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "15.1.1"
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: 4
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  T3rm:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Resources
+    settings:
+      base:
+        PRODUCT_NAME: t3rm
+        PRODUCT_BUNDLE_IDENTIFIER: com.davghz.t3rm
+        T3_DISPLAY_NAME: t3rm
+        T3_URL_SCHEME: t3rm-ssh
+        INFOPLIST_FILE: Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - package: T3rmKit
+        product: T3Engine
+      - package: T3rmKit
+        product: T3Sessions
+      - package: T3rmKit
+        product: T3Integration
+    postBuildScripts:
+      - name: Build terminal session launcher
+        script: '"$SRCROOT/scripts/build-helper.sh"'
+        inputFiles:
+          - "$(SRCROOT)/Sources/T3ShellLauncher/main.c"
+          - "$(SRCROOT)/scripts/build-helper.sh"
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/T3ShellLauncher"
+  T3rmUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: T3rm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.davghz.t3rm.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: T3rm
+schemes:
+  T3rm:
+    build:
+      targets:
+        T3rm: all
+    test:
+      targets: [T3rmUITests]
