@@ -1,0 +1,7 @@
+case,frames_per_app,columns,rows,baseline_median_ms,candidate_median_ms,median_speedup,baseline_p95_ms,candidate_p95_ms,baseline_cpu_pct,candidate_cpu_pct,baseline_peak_thermal,candidate_peak_thermal,baseline_peak_footprint_MiB,candidate_peak_footprint_MiB
+cold_sparse,41,46,24,9.84,0.644,15.28,17.041,1.163,39.29,15.81,0,1,49.81,26.39
+cold_styled,41,46,24,9.525,1.015,9.38,19.009,1.474,38.96,31.14,0,1,63.53,23.31
+cold_burst,41,46,24,12.601,3.106,4.06,20.077,5.998,38.56,4.9,0,1,67.53,13.83
+history_sparse,41,46,24,187.206,0.783,239.18,196.442,0.885,100.43,0.96,0,1,127.84,14.2
+history_styled,41,46,24,203.483,1.011,201.29,212.289,1.223,101.08,1.46,0,1,131.59,13.92
+history_burst,41,46,24,207.555,4.398,47.19,253.417,4.642,101.45,7.11,1,1,113.09,13.89
