@@ -70,11 +70,12 @@ struct Palette {
     let background: UIColor
     let foreground: UIColor
     let ansi: [UIColor]
-    static let names = ["Midnight", "Paper", "Black"]
+    static let names = ThemeSwatch.choices.map(\.name)
     init(name: String) {
-        let light = name == "Paper"
-        background = UIColor(hex: light ? 0xf7f5ef : name == "Black" ? 0x000000 : 0x111722)
-        foreground = UIColor(hex: light ? 0x202632 : 0xe3e8f0)
+        let swatch = ThemeSwatch.choices.first { $0.name == name } ?? ThemeSwatch.choices[0]
+        let light = swatch.light
+        background = UIColor(hex: swatch.background)
+        foreground = UIColor(hex: swatch.foreground)
         ansi = (light ? [
             0x24282e, 0xa92c3e, 0x276736, 0x805d00, 0x234c9f, 0x773e8d, 0x006c71, 0xc4c8cc,
             0x555d64, 0xc33850, 0x377d45, 0x966b00, 0x3766b2, 0x914ea7, 0x107e84, 0xf6f6f6

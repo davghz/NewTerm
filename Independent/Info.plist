@@ -11,6 +11,12 @@
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>$(PRODUCT_BUNDLE_IDENTIFIER).ssh</string><key>CFBundleURLSchemes</key><array><string>$(T3_URL_SCHEME)</string></array></dict></array>
+<key>UIApplicationSceneManifest</key><dict>
+<key>UIApplicationSupportsMultipleScenes</key><true/>
+<key>UISceneConfigurations</key><dict><key>UIWindowSceneSessionRoleApplication</key><array><dict>
+<key>UISceneConfigurationName</key><string>Terminal</string>
+<key>UISceneDelegateClassName</key><string>$(PRODUCT_MODULE_NAME).TerminalSceneDelegate</string>
+</dict></array></dict></dict>
 <key>UILaunchScreen</key><dict/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
