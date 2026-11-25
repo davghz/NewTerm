@@ -42,4 +42,3 @@ for custom in (False, True):
                 proc.send_signal(signal.SIGKILL)
             proc.wait()
 print("Stock prompt, user-configured prompt, and literal percent output passed.")
-

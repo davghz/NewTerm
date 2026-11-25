@@ -76,6 +76,7 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(screenContains("line-100"))
         app.buttons["t3rm.search"].tap()
         let search = app.searchFields["t3rm.searchField"]
+        XCTAssertTrue(search.waitForExistence(timeout: 8))
         search.tap()
         search.typeText("hidden-ready")
         XCTAssertTrue(app.staticTexts["1 of 1"].waitForExistence(timeout: 6))
@@ -86,6 +87,7 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(screenContains("界"))
         app.buttons["t3rm.search"].tap()
         let search = app.searchFields["t3rm.searchField"]
+        XCTAssertTrue(search.waitForExistence(timeout: 8))
         search.tap()
         search.typeText("long-" + String(repeating: "0", count: 65) + "-ok")
         XCTAssertTrue(app.staticTexts["1 of 1"].waitForExistence(timeout: 6))
