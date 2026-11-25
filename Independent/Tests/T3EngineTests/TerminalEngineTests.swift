@@ -261,6 +261,17 @@ final class TerminalEngineTests: XCTestCase {
         }
     }
 
+    func testASCIIRunsWrappingAndReplacingWideCells() {
+        let t = TerminalEngine(columns: 5, rows: 2)
+        t.feed(Data(("a界界" + esc + "[3GXYZ" + esc + "[?7l123456" + esc + "[?7h" + esc + "[H").utf8))
+        XCTAssertEqual(text(t, 0), "a XY6")
+        t.feed(Data("1234567890abcdefghi".utf8))
+        XCTAssertEqual((0..<4).map { text(t, $0) }, ["12345", "67890", "abcde", "fghi "])
+        XCTAssertEqual(t.historyCount, 2)
+        XCTAssertEqual(t.cursorColumn, 4)
+        XCTAssertEqual((0..<4).map { t.wrappedLength(at: $0) }, [5, 5, 5, nil])
+    }
+
     func testRepeatedDirtyReadsAndModelWhileHidden() {
         let engines = (0..<3).map { _ in TerminalEngine(columns: 16, rows: 4) }
         for (session, t) in engines.enumerated() {

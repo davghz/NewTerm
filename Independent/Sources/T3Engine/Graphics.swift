@@ -40,6 +40,42 @@ func expandedCellWidth(_ text: String) -> Int {
 }
 
 extension TerminalEngine {
+    /// Consecutive ASCII output needs one grid mutation and one damage mark
+    /// per physical row. Preserve the ordinary glyph path at Unicode boundaries.
+    func printASCIIRun(_ bytes: UnsafeBufferPointer<UInt8>, from start: Int, to end: Int) {
+        var offset = start
+        if let anchor = anchor, let first = screen.grid[anchor.row][anchor.column].text.utf8.first, first >= 0x80 {
+            printASCII(bytes[offset])
+            offset += 1
+        }
+        let blank = erased
+        let rendition = style
+        while offset < end {
+            if screen.pendingWrap {
+                screen.wrapped[screen.row] = columns
+                move(row: screen.row, column: 0)
+                advance()
+            }
+            let x = screen.column, y = screen.row
+            if !modes.autoWrap && x == columns - 1 { offset = end - 1 }
+            let count = min(columns - x, end - offset)
+            let last = x + count - 1
+            screen.grid[y].withUnsafeMutableBufferPointer { cells in
+                if cells[x].width == 0 { cells[x - 1] = blank }
+                if cells[last].width == 2 { cells[last + 1] = blank }
+                for i in 0..<count {
+                    cells[x + i] = TerminalCell(text: printableASCII[Int(bytes[offset + i]) - 32], style: rendition)
+                }
+            }
+            mark(y)
+            screen.pendingWrap = modes.autoWrap && last == columns - 1
+            screen.column = min(columns - 1, last + 1)
+            anchor = (y, last)
+            lastGraphic = screen.grid[y][last]
+            offset += count
+        }
+    }
+
     func printASCII(_ byte: UInt8) {
         if graphics[g1 ? 1 : 0], byte >= 0x60, byte <= 0x7e {
             printGlyph(TerminalCell(text: String(decGraphics[Int(byte - 0x60)]), style: style))

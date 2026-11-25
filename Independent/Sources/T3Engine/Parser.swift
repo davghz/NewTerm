@@ -10,7 +10,24 @@ extension TerminalEngine {
     @discardableResult
     public func feed(_ data: Data) -> [TerminalEffect] {
         var effects = [TerminalEffect]()
-        for byte in data {
+        data.withUnsafeBytes { raw in
+            consume(raw.bindMemory(to: UInt8.self), effects: &effects)
+        }
+        return effects
+    }
+
+    private func consume(_ bytes: UnsafeBufferPointer<UInt8>, effects: inout [TerminalEffect]) {
+        var index = 0
+        while index < bytes.count {
+            let byte = bytes[index]
+            index += 1
+            if parser == .ground, utf8Remaining == 0, (0x20...0x7e).contains(byte),
+               !modes.insert, !graphics[g1 ? 1 : 0] {
+                let start = index - 1
+                while index < bytes.count && (0x20...0x7e).contains(bytes[index]) { index += 1 }
+                printASCIIRun(bytes, from: start, to: index)
+                continue
+            }
             if parser == .ground && utf8Remaining > 0 {
                 if byte >= utf8Min && byte <= utf8Max {
                     utf8Value = (utf8Value << 6) | UInt32(byte & 0x3f)
@@ -86,7 +103,6 @@ extension TerminalEngine {
             case .osc, .ignoredString: break
             }
         }
-        return effects
     }
 
     private func startUTF8(_ value: UInt8, remaining: Int, min: UInt8 = 0x80, max: UInt8 = 0xbf) {
