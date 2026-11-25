@@ -1,0 +1,175 @@
+import Foundation
+import T3Engine
+import T3Sessions
+
+struct TerminalFrame {
+    let first: Int
+    let history: Int
+    let start: Int
+    let count: Int
+    let changes: [Int: [TerminalCell]]
+    let cursorColumn: Int
+    let cursorLine: Int
+    let modes: TerminalModes
+}
+
+struct Transcript {
+    let text: String
+    let lineOffsets: [Int]
+}
+
+final class TerminalModel {
+    private let queue = DispatchQueue(label: "t3rm.terminal", qos: .userInitiated)
+    private let engine = TerminalEngine(columns: 80, rows: 24)
+    private let session = TerminalSession()
+    private let notification = DispatchSource.makeUserDataAddSource(queue: .main)
+    private var previousWindow: Range<Int>?
+    private var previousHistory = 0
+    private var synchronizationStart: TimeInterval?
+    private var historyBudget = 24 * 1024 * 1024
+    private var launched = false
+    private var closed = false
+    private var observedEnd = false
+    var onChange: (() -> Void)?
+    var onEffect: ((TerminalEffect) -> Void)?
+    var onWriteRejected: (() -> Void)?
+    var onExit: ((String) -> Void)?
+
+    init() {
+        notification.setEventHandler { [weak self] in self?.onChange?() }
+        notification.resume()
+    }
+
+    deinit { notification.cancel() }
+
+    func start(directory: String?, columns: Int, rows: Int) {
+        queue.async { [self] in
+            guard !launched && !closed else { return }
+            launched = true
+            engine.resize(columns: columns, rows: rows)
+            do {
+                try session.start(directory: directory, columns: columns, rows: rows, onData: { [weak self] bytes in
+                    self?.receive(bytes)
+                }, onExit: { [weak self] code in
+                    self?.end("Session ended (\(code))")
+                })
+            } catch {
+                end("Unable to start shell. \(error.localizedDescription)")
+            }
+            notification.add(data: 1)
+        }
+    }
+
+    private func end(_ reason: String) {
+        queue.async { [self] in
+            guard !observedEnd && !closed else { return }
+            observedEnd = true
+            DispatchQueue.main.async { [weak self] in self?.onExit?(reason) }
+        }
+    }
+
+    private func receive(_ bytes: Data) {
+        // The session worker resumes reading after this returns, bounding output in flight.
+        queue.sync { [self] in
+            guard !closed else { return }
+            for effect in engine.feed(bytes) {
+                switch effect {
+                case .reply(let response): session.write(response)
+                default: DispatchQueue.main.async { [weak self] in self?.onEffect?(effect) }
+                }
+            }
+            if engine.historyStorageBytes > historyBudget { engine.trimHistory(toBytes: historyBudget) }
+            notification.add(data: 1)
+        }
+    }
+
+    func resize(columns: Int, rows: Int) {
+        queue.async { [self] in
+            guard !closed, columns != engine.columns || rows != engine.rows else { return }
+            engine.resize(columns: columns, rows: rows)
+            session.resize(columns: columns, rows: rows)
+            previousWindow = nil
+            notification.add(data: 1)
+        }
+    }
+
+    // Read modes on the same queue as incoming control sequences.
+    func send(_ encode: @escaping (TerminalModes) -> Data) {
+        queue.async { [self] in
+            guard !closed && !observedEnd else { return }
+            let bytes = encode(engine.modes)
+            if !bytes.isEmpty, !session.tryWrite(bytes) {
+                DispatchQueue.main.async { [weak self] in self?.onWriteRejected?() }
+            }
+        }
+    }
+
+    func close() {
+        queue.async { [self] in
+            guard !closed else { return }
+            closed = true
+            session.close()
+        }
+    }
+
+    func trim(bytes: Int) {
+        queue.async { [self] in
+            historyBudget = bytes
+            engine.trimHistory(toBytes: bytes)
+            previousWindow = nil
+            notification.add(data: 1)
+        }
+    }
+
+    // A nil top follows the cursor screen. Changes are indexed from the first
+    // retained line. Snapshot only the rows a view can actually display.
+    func frame(top: Int?, capacity: Int, force: Bool, completion: @escaping (TerminalFrame?) -> Void) {
+        queue.async { [self] in
+            let now = ProcessInfo.processInfo.systemUptime
+            if engine.modes.synchronizedOutput {
+                if synchronizationStart == nil { synchronizationStart = now }
+                if now - (synchronizationStart ?? now) < 0.15 {
+                    DispatchQueue.main.async { completion(nil) }
+                    return
+                }
+            } else { synchronizationStart = nil }
+            let history = engine.historyCount
+            let first = engine.discardedHistoryLines
+            let screen = first + history
+            let start = max(first, min(screen, top ?? screen))
+            let window = start..<min(screen + engine.rows, start + capacity)
+            let dirty = engine.takeDirtyRows()
+            var changes: [Int: [TerminalCell]] = [:]
+            let shifted = previousHistory != screen
+            for index in window {
+                if force || shifted || previousWindow?.contains(index) != true || (index >= screen && dirty.contains(index - screen)) {
+                    changes[index] = engine.line(at: index - first)
+                }
+            }
+            previousWindow = window
+            previousHistory = screen
+            let frame = TerminalFrame(first: first, history: history, start: start, count: window.count, changes: changes,
+                                      cursorColumn: engine.cursorColumn, cursorLine: screen + engine.cursorRow,
+                                      modes: engine.modes)
+            DispatchQueue.main.async { completion(frame) }
+        }
+    }
+
+    func transcript(_ completion: @escaping (Transcript) -> Void) {
+        queue.async { [self] in
+            var text = ""
+            var offsets: [Int] = []
+            var offset = 0
+            for index in 0..<(engine.historyCount + engine.rows) {
+                offsets.append(offset)
+                var line = engine.line(at: index).filter { $0.width > 0 }.map(\.text).joined()
+                while line.last == " " { line.removeLast() }
+                if index > 0 { text.append("\n") }
+                text.append(line)
+                offset += line.utf16.count + 1
+            }
+            let result = Transcript(text: text, lineOffsets: offsets)
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+}
