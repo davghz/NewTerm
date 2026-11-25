@@ -39,3 +39,19 @@ For a real-device editing check, copy `cli_probe.py` beside `replay.py` and run 
 python3 run_ui.py "$QA_TESTRUN" "$QA_DEVICE" review editing edit01 "$QA_EVIDENCE"
 python3 compare.py "$QA_EVIDENCE" baseline01 review01 > "$QA_EVIDENCE/comparison.csv"
 ```
+
+The `prompt` mode checks a fresh compact prompt and verifies a command can print a literal percent sign. For the four-tab measurement, copy `interaction.py` beside `replay.py`, then run these two host commands concurrently using the same new tag.
+
+```sh
+python3 run_ui.py "$QA_TESTRUN" "$QA_DEVICE" review interaction tabs01 "$QA_EVIDENCE"
+python3 profile_tabs.py "$QA_DEVICE" tabs01 "$QA_EVIDENCE" --ssh-socket "$QA_SOCKET" --ssh-host "$QA_SSH_HOST"
+```
+
+Each hidden shell emits 100 updates while the visible shell is idle. Visible rendering runs immediately before and after as a positive control for the targeted `LayoutRows` and `DrawRows` signposts. The test visits each tab to confirm its unique final sentinel. A second probe taps the on-screen X key seven times and alternates red and green PTY output. A screenshot confirms each response by its composed pixel color. Times through the first confirming screenshot include XCTest and capture overhead.
+
+```sh
+xcrun xctrace export --input "$QA_EVIDENCE/tabs01_tabs.trace" --toc --output "$QA_EVIDENCE/tabs01_tabs.toc.xml"
+xcrun xctrace export --input "$QA_EVIDENCE/tabs01_tabs.trace" --xpath '/trace-toc/run/data/table[@schema="os-signpost"]' --output "$QA_EVIDENCE/tabs01_signposts.xml"
+xcrun xcresulttool export attachments --path "$QA_EVIDENCE/tabs01.xcresult" --output-path "$QA_EVIDENCE/tabs01-attachments"
+python3 analyze_interaction.py "$QA_EVIDENCE" tabs01
+```

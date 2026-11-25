@@ -7,7 +7,7 @@ final class TerminalDeviceTests: XCTestCase {
         let id = try XCTUnwrap(env["QA_TARGET"])
         XCTAssertTrue(["com.davghz.t3rm.baseline", "com.davghz.t3rm.review"].contains(id))
         let mode = env["QA_CASE"] ?? "smoke"
-        XCTAssertTrue(["editing", "suite", "smoke", "cold_sparse", "cold_styled", "cold_burst", "history_sparse", "history_styled", "history_burst"].contains(mode))
+        XCTAssertTrue(["interaction", "prompt", "editing", "suite", "smoke", "cold_sparse", "cold_styled", "cold_burst", "history_sparse", "history_styled", "history_burst"].contains(mode))
         let run = try XCTUnwrap(env["QA_RUN"])
         XCTAssertTrue(run.range(of: #"^[a-z0-9_]{1,50}$"#, options: .regularExpression) != nil)
 
@@ -23,6 +23,31 @@ final class TerminalDeviceTests: XCTestCase {
         screenshot.name = "Isolated terminal before replay"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+        if mode == "interaction" {
+            XCTAssertEqual(id, "com.davghz.t3rm.review")
+            try measureInteraction(target, tag: run)
+            return
+        }
+        if mode == "prompt" {
+            let canvas = target.descendants(matching: .any)["t3rm.terminal"].firstMatch
+            let ready = NSPredicate { _, _ in !(canvas.value as? String ?? "").isEmpty }
+            _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: nil)], timeout: 5)
+            let prompt = try XCTUnwrap(canvas.value as? String)
+            XCTAssertFalse(prompt.isEmpty)
+            XCTAssertFalse(prompt.contains("%"), prompt)
+            let text = XCTAttachment(string: prompt)
+            text.name = "Fresh default prompt"
+            text.lifetime = .keepAlways
+            add(text)
+            target.typeText("printf 'literal=100\\045\\n'\n")
+            let literal = NSPredicate { _, _ in (canvas.value as? String ?? "").contains("literal=100%") }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: literal, object: nil)], timeout: 5), .completed)
+            let shot = XCTAttachment(screenshot: target.screenshot())
+            shot.name = "Literal percent output"
+            shot.lifetime = .keepAlways
+            add(shot)
+            return
+        }
         if mode == "editing" {
             XCTAssertEqual(id, "com.davghz.t3rm.review")
             try exerciseEditors(target, run: run)
