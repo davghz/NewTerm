@@ -22,6 +22,9 @@ targets:
     sources:
       - App
       - Resources
+      - path: ShellStartup
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_NAME: t3rm

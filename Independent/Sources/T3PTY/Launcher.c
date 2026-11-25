@@ -4,6 +4,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pwd.h>
+#include <limits.h>
+#include <mach-o/dyld.h>
+#include <stdio.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +21,23 @@ static void fail(enum t3_launch_stage stage) {
 
 static void environment(const char *name, const char *value) {
     if (setenv(name, value, 1) < 0) fail(T3_ENVIRONMENT);
+}
+
+static void configure_zsh(void) {
+    if (!getenv("PROMPT_EOL_MARK")) environment("PROMPT_EOL_MARK", "");
+    char executable[PATH_MAX], resource[PATH_MAX];
+    uint32_t length = sizeof(executable);
+    if (_NSGetExecutablePath(executable, &length) != 0) return;
+    char *leaf = strrchr(executable, '/');
+    if (!leaf) return;
+    *leaf = 0;
+    int used = snprintf(resource, sizeof(resource), "%s/ShellStartup/.zshenv", executable);
+    if (used < 0 || (size_t)used >= sizeof(resource) || access(resource, R_OK) != 0) return;
+    const char *original = getenv("ZDOTDIR");
+    environment("T3RM_HAD_ZDOTDIR", original ? "1" : "0");
+    if (original) environment("T3RM_ORIGINAL_ZDOTDIR", original);
+    *strrchr(resource, '/') = 0;
+    environment("ZDOTDIR", resource);
 }
 
 int t3_run_launcher(int argc, char **argv) {
@@ -46,10 +66,7 @@ int t3_run_launcher(int argc, char **argv) {
     if (chdir(directory && *directory ? directory : "/") < 0) fail(T3_DIRECTORY);
     unsetenv("PWD"); /* the shell computes PWD from its new directory */
     const char *name = strrchr(shell, '/');
-    if (name && strcmp(name + 1, "zsh") == 0 && !getenv("PROMPT_EOL_MARK")) {
-        // Hide zsh's reverse-video marker for initial partial lines in this app.
-        environment("PROMPT_EOL_MARK", "");
-    }
+    if (name && strcmp(name + 1, "zsh") == 0) configure_zsh();
     execl(shell, name ? name + 1 : shell, "-l", "-i", (char *)NULL);
     fail(T3_EXEC);
     return 126;
