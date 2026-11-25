@@ -209,6 +209,58 @@ final class TerminalEngineTests: XCTestCase {
         XCTAssertEqual(effects, [.reply(Data((esc + "]11;rgb:0101/2a2a/ffff" + esc + "\\").utf8))])
     }
 
+    func testVersionedUploadAndLocalRemoteWorkingDirectory() {
+        let first = esc + "]1337;RequestUpload=format=tgz;version=My42LjE=\u{07}"
+        let second = esc + "]1337;RequestUpload=version=My42LjE=;format=tgz" + esc + "\\"
+        let invalid = esc + "]1337;RequestUpload=format=tgz;format=zip\u{07}"
+        let local = esc + "]7;file://localhost/var/mobile/My%20Files\u{07}"
+        let remote = esc + "]1337;RemoteHost=user@remote.example\u{07}" + esc + "]1337;CurrentDir=/tmp/a b\u{07}"
+        let other = esc + "]7;file://remote.example/tmp/x\u{07}" + esc + "]7;file:///tmp/%00etc\u{07}"
+        replay(Data((first + second + invalid + local + remote + other).utf8)) { _, effects in
+            XCTAssertEqual(effects, [.uploadRequest, .uploadRequest, .workingDirectory("file://localhost/var/mobile/My%20Files"),
+                                      .workingDirectory("file://remote.example/tmp/a%20b"), .workingDirectory("file://remote.example/tmp/x")])
+        }
+    }
+
+    func testOneColumnReflowRestoresIntrinsicWidths() {
+        let t = TerminalEngine(columns: 4, rows: 5)
+        t.feed(Data("界❤️A".utf8))
+        t.resize(columns: 1, rows: 5)
+        XCTAssertEqual((0..<3).map { text(t, $0) }, ["界", "❤️", "A"])
+        t.resize(columns: 7, rows: 5)
+        XCTAssertEqual(t.line(at: 0).map(\.width), [2, 0, 2, 0, 1, 1, 1])
+        XCTAssertEqual(t.cursorColumn, 5)
+    }
+
+    func testGridInvariantsUnderMixedEditingAndRotation() {
+        let t = TerminalEngine(columns: 8, rows: 4, historyLimit: 7)
+        var seed: UInt64 = 741
+        func draw(_ upper: Int) -> Int {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Int((seed >> 32) % UInt64(upper))
+        }
+        let commands = ["界", " ", "a", "👩‍💻", "\r", "\n", "\t", "\u{08}", esc + "[1@", esc + "[2P", esc + "[2K",
+                        esc + "[1S", esc + "[2T", esc + "[?1049l", esc + "[?1049h", esc + "7", esc + "8", esc + "[4h", esc + "[4l"]
+        for _ in 0..<2000 {
+            switch draw(12) {
+            case 0: t.resize(columns: draw(13) + 1, rows: draw(7) + 1)
+            case 1: t.feed(Data((esc + "[\(draw(t.rows) + 1);\(draw(t.columns) + 1)H").utf8))
+            default: t.feed(Data(commands[draw(commands.count)].utf8))
+            }
+            XCTAssertTrue((0..<t.rows).contains(t.cursorRow))
+            XCTAssertTrue((0..<t.columns).contains(t.cursorColumn))
+            for i in 0..<(t.historyCount + t.rows) {
+                let row = t.line(at: i)
+                XCTAssertEqual(row.count, t.columns)
+                if let length = t.wrappedLength(at: i) { XCTAssertTrue((0...t.columns).contains(length)) }
+                for (column, cell) in row.enumerated() {
+                    if cell.width == 0 { XCTAssertTrue(column > 0 && row[column - 1].width == 2) }
+                    if cell.width == 2 { XCTAssertTrue(column + 1 < row.count && row[column + 1].width == 0) }
+                }
+            }
+        }
+    }
+
     func testRepeatedDirtyReadsAndModelWhileHidden() {
         let engines = (0..<3).map { _ in TerminalEngine(columns: 16, rows: 4) }
         for (session, t) in engines.enumerated() {

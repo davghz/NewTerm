@@ -27,6 +27,18 @@ private func scalarWidth(_ scalar: Unicode.Scalar) -> Int {
     }
 }
 
+/// A one-column viewport stores wide glyphs in its only cell. Recover their
+/// natural width when the main screen grows again.
+func expandedCellWidth(_ text: String) -> Int {
+    var width = 1
+    var emoji = false
+    for scalar in text.unicodeScalars {
+        if scalar.properties.isEmoji { emoji = true }
+        if scalarWidth(scalar) == 2 || scalar.value == 0x20e3 || emoji && scalar.value == 0xfe0f { width = 2 }
+    }
+    return width
+}
+
 extension TerminalEngine {
     func printASCII(_ byte: UInt8) {
         if graphics[g1 ? 1 : 0], byte >= 0x60, byte <= 0x7e {

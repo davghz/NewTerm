@@ -77,7 +77,7 @@ private final class Reflow {
         while source < end {
             var cell = cells[source]
             let originalWidth = max(1, cell.width)
-            cell.width = min(width, originalWidth)
+            cell.width = cells.count == 1 && width > 1 ? expandedCellWidth(cell.text) : min(width, originalWidth)
             if x + cell.width > width { emit(wrapped: x) }
             if hasCursor, !oldCursor.pending, oldCursor.column >= source, oldCursor.column < source + originalWidth {
                 cursor = mapped(x + min(cell.width - 1, oldCursor.column - source))

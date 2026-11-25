@@ -267,7 +267,12 @@ extension TerminalEngine {
         let body = String(string[string.index(after: semicolon)...])
         switch string[..<semicolon] {
         case "0", "2": effects.append(.title(body))
-        case "7": effects.append(.workingDirectory(body))
+        case "7":
+            guard let url = URLComponents(string: body), url.scheme?.lowercased() == "file",
+                  url.user == nil, url.password == nil, url.port == nil, url.query == nil, url.fragment == nil,
+                  validDirectory(url.path) else { return }
+            reportedDirectoryHost = url.host.flatMap { $0.isEmpty ? nil : $0 }
+            effects.append(.workingDirectory(body))
         case "10", "11":
             let opcode = String(string[..<semicolon])
             let color = opcode == "10" ? defaultForegroundRGB : defaultBackgroundRGB
@@ -277,9 +282,32 @@ extension TerminalEngine {
                 effects.append(.reply(Data(response.utf8)))
             }
         case "1337":
-            if body == "RequestUpload=format=tgz" { effects.append(.uploadRequest) }
-            else if body.hasPrefix("CurrentDir=") { effects.append(.workingDirectory(String(body.dropFirst(11)))) }
+            if body.hasPrefix("RequestUpload=") {
+                let options = body.dropFirst("RequestUpload=".count).split(separator: ";")
+                let formats = options.filter { $0.hasPrefix("format=") }
+                if formats == ["format=tgz"] { effects.append(.uploadRequest) }
+            } else if body.hasPrefix("RemoteHost=") {
+                let identity = body.dropFirst("RemoteHost=".count)
+                // Keep a remote hint even for malformed host reports; a following
+                // CurrentDir must not silently turn into a local filesystem path.
+                reportedDirectoryHost = identity.split(separator: "@", omittingEmptySubsequences: false).last.map(String.init) ?? ""
+            } else if body.hasPrefix("CurrentDir=") {
+                let path = String(body.dropFirst("CurrentDir=".count))
+                guard validDirectory(path) else { return }
+                if let host = reportedDirectoryHost {
+                    guard !host.isEmpty else { return }
+                    var url = URLComponents()
+                    url.scheme = "file"
+                    url.host = host
+                    url.path = path
+                    if let location = url.string { effects.append(.workingDirectory(location)) }
+                } else { effects.append(.workingDirectory(path)) }
+            }
         default: break
         }
+    }
+
+    private func validDirectory(_ path: String) -> Bool {
+        path.hasPrefix("/") && !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
     }
 }

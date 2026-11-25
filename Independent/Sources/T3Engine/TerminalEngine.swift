@@ -27,6 +27,7 @@ public final class TerminalEngine {
     var stringOverflow = false
     var stringUTF8Remaining = 0
     var stringLimit = 8192
+    var reportedDirectoryHost: String?
     var utf8Value: UInt32 = 0
     var utf8Remaining = 0
     var utf8Min: UInt8 = 0x80
@@ -112,6 +113,7 @@ public final class TerminalEngine {
             page.saved.row -= shift
         }
         if width != columns {
+            page.wrapped = Array(repeating: nil, count: page.grid.count)
             for row in page.grid.indices {
                 if width > columns {
                     page.grid[row].append(contentsOf: repeatElement(TerminalCell(), count: width - columns))
@@ -284,6 +286,7 @@ public final class TerminalEngine {
         g1 = false
         anchor = nil
         lastGraphic = nil
+        reportedDirectoryHost = nil
         tabs = IndexSet(stride(from: 8, to: columns, by: 8))
         dirty = IndexSet(integersIn: 0..<rows)
     }
