@@ -65,6 +65,8 @@ final class Probe {
 let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("t3rm-probe-" + UUID().uuidString)
 try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: tmp) }
+setenv("ZDOTDIR", tmp.path, 1)
+setenv("HISTFILE", "/dev/null", 1)
 func descriptorCount() -> Int { (0..<512).filter { fcntl(Int32($0), F_GETFD) >= 0 }.count }
 
 if scenario == "cycles" {
@@ -100,25 +102,39 @@ if scenario == "shell" {
 
 var inject = "export HOME=\"$PWD\" XDG_CONFIG_HOME=\"$PWD/config\" XDG_CACHE_HOME=\"$PWD/cache\" XDG_DATA_HOME=\"$PWD/data\" CLAUDE_CONFIG_DIR=\"$PWD/.claude\" CODEX_HOME=\"$PWD/.codex\"; "
 inject += "mkdir -p \"$CODEX_HOME\"; export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1; "
-probe.write(inject + scenario + "; printf 'T3%s\\n' RETURNED\r")
+// A new zsh prompt proves the shell regained the foreground even if an
+// interrupt discarded the rest of the input line.
+let invocation = scenario == "opencode" ? "opencode --standalone" : scenario
+inject += "function _t3_probe_return { printf 'T3%s\\n' RETURNED; }; precmd_functions+=(_t3_probe_return); "
+probe.write(inject + invocation + "\r")
 
-let appeared = probe.wait(30) {
-    let screen = probe.visible().lowercased()
+func recognized(_ value: String) -> Bool {
+    let screen = value.lowercased()
     switch scenario {
     case "claude": return screen.contains("dark mode") || screen.contains("choose the text style") || screen.contains("select a theme")
-    case "opencode": return screen.contains("ask anything") || screen.contains("tab agents") || screen.contains("ctrl+p commands")
+    case "opencode": return screen.contains("ask anything") || screen.contains("tab agents") || screen.contains("ctrl+p commands") || (screen.contains("/models") && screen.contains("/sessions"))
     default: return screen.contains("sign in") || screen.contains("codex cli") || screen.contains("openai codex") || screen.contains("login with")
     }
 }
+let appeared = probe.wait(30) { recognized(probe.visible()) }
 let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
+probe.lock.lock()
+let beforeResize = probe.bytes
+probe.engine.resize(columns: 63, rows: 25)
+probe.lock.unlock()
 probe.session.resize(columns: 63, rows: 25)
-probe.session.write(Data([3]))
-_ = probe.wait(2) { probe.hasMarker("T3RETURNED\r\n") }
-probe.session.write(Data([3]))
-probe.session.write(Data([4]))
-_ = probe.wait(2) { probe.hasMarker("T3RETURNED\r\n") || probe.exitCode != nil }
-let returned = probe.wait(1) { probe.hasMarker("T3RETURNED\r\n") }
+let resized = appeared && probe.wait(5) { probe.bytes > beforeResize && recognized(probe.visible()) }
+for key: UInt8 in [3, 3, 4, 3] {
+    if probe.wait(0.25, { probe.hasMarker("T3RETURNED") }) { break }
+    probe.session.write(Data([key]))
+}
+let returned = probe.wait(4) { probe.hasMarker("T3RETURNED") }
+if returned {
+    probe.write("stty size; exit 0\r")
+    _ = probe.wait(3) { probe.exitCode != nil }
+}
 probe.session.close()
 _ = probe.wait(4) { probe.exitCode != nil }
-print("cli=\(scenario) recognizable_screen=\(appeared) first_screen_ms=\(Int(elapsed)) returned_to_shell=\(returned) bytes=\(probe.bytes)")
-exit(appeared ? 0 : 1)
+let actualSize = probe.hasMarker("25 63")
+print("cli=\(scenario) recognizable_screen=\(appeared) first_screen_ms=\(Int(elapsed)) redraw_after_resize=\(resized) returned_to_shell=\(returned) confirmed_size=\(actualSize)")
+exit(appeared && resized && returned && actualSize ? 0 : 1)
