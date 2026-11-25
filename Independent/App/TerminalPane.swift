@@ -41,6 +41,8 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     private var force = true
     private var busyWithLayout = false
     private var following = true
+    private var lastFirstLine = 0
+    private var lastBellTime: TimeInterval = -.infinity
     private var columns = 0
     private var rowCount = 0
     private var generation = 0
@@ -199,7 +201,10 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     func invalidate() {
         pending = true
         guard visible else { return }
-        if !frameInFlight && displayLink == nil {
+        guard !frameInFlight else { return }
+        if let link = displayLink {
+            link.isPaused = false
+        } else {
             let link = CADisplayLink(target: self, selector: #selector(tick))
             link.preferredFramesPerSecond = Preferences.frameRate
             displayLink = link
@@ -211,7 +216,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
         guard visible, pending, !frameInFlight, rowCount > 0 else { park(); return }
         let topOffset = max(0, scroll.contentOffset.y)
         let floatTop = topOffset / canvas.cellSize.height
-        let top = following ? nil : (canvas.frameData?.first ?? 0) + Int(floor(floatTop))
+        let top = following ? nil : lastFirstLine + Int(floor(floatTop))
         let fraction = following ? 0 : topOffset - floor(floatTop) * canvas.cellSize.height
         let token = generation
         let full = force
@@ -230,6 +235,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
             }
             if let data = data {
                 self.busyWithLayout = true
+                self.lastFirstLine = data.first
                 let height = self.canvas.cellSize.height
                 self.scroll.contentSize = CGSize(width: self.bounds.width, height: self.bounds.height + CGFloat(data.history)*height)
                 let partial = self.following || data.start != top ? 0 : fraction
@@ -250,7 +256,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
             if self.pending { self.invalidate() }
         }
     }
-    private func park() { displayLink?.invalidate(); displayLink = nil }
+    private func park() { displayLink?.isPaused = true }
 
     private func positionInput() {
         let cell = canvas.cellSize
@@ -339,6 +345,9 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
                 directory = path
             }
         case .bell:
+            let now = ProcessInfo.processInfo.systemUptime
+            guard visible, now - lastBellTime >= 0.65 else { return }
+            lastBellTime = now
             if Preferences.defaults.bool(forKey: "bellSound") { AudioServicesPlaySystemSound(1104) }
             if Preferences.defaults.bool(forKey: "bellVibrate") { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
             if Preferences.defaults.bool(forKey: "bellHUD"), !ended {

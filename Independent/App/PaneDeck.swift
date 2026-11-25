@@ -88,7 +88,8 @@ final class PaneDeck: UIView {
         let length = axis == .horizontal ? bounds.width : bounds.height
         let divider = min(handleSize, length / CGFloat(paneViews.count * 2))
         let available = max(0,length - CGFloat(handles.count)*divider)
-        let total = max(1,weights.reduce(0,+))
+        let total = weights.reduce(0,+)
+        guard total > 0 else { return }
         var position: CGFloat = 0
         var weight: CGFloat = 0
         func rect(_ origin: CGFloat, _ extent: CGFloat) -> CGRect {

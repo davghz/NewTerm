@@ -18,6 +18,7 @@ final class TerminalCanvas: UIView {
     private(set) var cellSize = CGSize(width: 8, height: 16)
     private var rows: [Int: [GlyphRun]] = [:]
     private var fonts: [Int: UIFont] = [:]
+    private var fixedPitch = true
     private(set) var frameData: TerminalFrame?
     var fraction: CGFloat = 0
     var horizontalInset: CGFloat = 4
@@ -47,6 +48,7 @@ final class TerminalCanvas: UIView {
 
     func refreshAppearance() {
         font = Preferences.font
+        fixedPitch = font.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
         palette = Palette(name: Preferences.defaults.string(forKey: "themeName") ?? "Midnight")
         cellSize = CGSize(width: max(1, ("M" as NSString).size(withAttributes: [.font: font]).width),
                           height: ceil(font.lineHeight))
@@ -124,7 +126,7 @@ final class TerminalCanvas: UIView {
             index += max(1, cell.width)
             // Draw simple monospace runs together. A grapheme needing fallback gets
             // its own origin so a proportional fallback cannot displace later cells.
-            if font.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) && cell.width == 1 && cell.text.utf8.count == 1 {
+            if fixedPitch && cell.width == 1 && cell.text.utf8.count == 1 {
                 while index < cells.count && cells[index].width == 1 && cells[index].text.utf8.count == 1 &&
                         cells[index].style == cell.style {
                     string += cells[index].text

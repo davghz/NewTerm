@@ -1,10 +1,19 @@
 import UIKit
 import UniformTypeIdentifiers
 import T3Integration
+import T3Sessions
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
+    static func main() {
+        #if targetEnvironment(simulator)
+        if let status = TerminalSession.runSimulatorLauncherIfRequested() { exit(status) }
+        #endif
+        UIApplicationMain(CommandLine.argc, CommandLine.unsafeArgv, nil, NSStringFromClass(AppDelegate.self))
+    }
+
     private var workspaces: [String: WorkspaceController] = [:]
+    private var connected: [String: ObjectIdentifier] = [:]
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         Preferences.register()
@@ -17,14 +26,21 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         config.delegateClass = TerminalSceneDelegate.self
         return config
     }
-    func workspace(for session: UISceneSession) -> WorkspaceController {
+    func workspace(for session: UISceneSession, scene: UIScene) -> WorkspaceController {
+        connected[session.persistentIdentifier] = ObjectIdentifier(scene)
         if let existing = workspaces[session.persistentIdentifier] { return existing }
         let workspace = WorkspaceController()
         workspaces[session.persistentIdentifier] = workspace
         return workspace
     }
+    func disconnect(_ scene: UIScene) {
+        let id = scene.session.persistentIdentifier
+        if connected[id] == ObjectIdentifier(scene) { connected.removeValue(forKey: id) }
+    }
     func application(_ application: UIApplication, didDiscardSceneSessions sessions: Set<UISceneSession>) {
-        for session in sessions { workspaces.removeValue(forKey: session.persistentIdentifier)?.closeSessions() }
+        for session in sessions where connected[session.persistentIdentifier] == nil {
+            workspaces.removeValue(forKey: session.persistentIdentifier)?.closeSessions()
+        }
     }
 }
 
@@ -35,7 +51,7 @@ final class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let scene = scene as? UIWindowScene, let app = UIApplication.shared.delegate as? AppDelegate else { return }
         let window = UIWindow(windowScene: scene)
-        window.rootViewController = app.workspace(for: session)
+        window.rootViewController = app.workspace(for: session, scene: scene)
         self.window = window
         window.makeKeyAndVisible()
         scene.title = "t3rm"
@@ -52,6 +68,7 @@ final class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidEnterBackground(_ scene: UIScene) { workspace?.setForeground(false) }
     func sceneWillEnterForeground(_ scene: UIScene) { workspace?.setForeground(true) }
     func sceneDidDisconnect(_ scene: UIScene) {
+        (UIApplication.shared.delegate as? AppDelegate)?.disconnect(scene)
         workspace?.setForeground(false)
         window?.rootViewController = nil
         window = nil
@@ -168,7 +185,7 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
             self.markActive()
         }
         pane.onTitle = { [weak self, weak tab] title in
-            guard let self = self, let tab = tab else { return }
+            guard let self = self, let tab = tab, tab.title != title else { return }
             tab.title = title
             self.refreshTabs()
         }

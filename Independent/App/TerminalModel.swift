@@ -23,6 +23,11 @@ final class TerminalModel {
     private let engine = TerminalEngine(columns: 80, rows: 24)
     private let session = TerminalSession()
     private let notification = DispatchSource.makeUserDataAddSource(queue: .main)
+    private let effectLock = NSLock()
+    private var pendingTitle: String?
+    private var pendingDirectory: String?
+    private var pendingBell = false
+    private var pendingTransfer: TerminalEffect?
     private var previousWindow: Range<Int>?
     private var previousHistory = 0
     private var synchronizationStart: TimeInterval?
@@ -36,7 +41,7 @@ final class TerminalModel {
     var onExit: ((String) -> Void)?
 
     init() {
-        notification.setEventHandler { [weak self] in self?.onChange?() }
+        notification.setEventHandler { [weak self] in self?.publish() }
         notification.resume()
     }
 
@@ -72,21 +77,60 @@ final class TerminalModel {
         // The session worker resumes reading after this returns, bounding output in flight.
         queue.sync { [self] in
             guard !closed else { return }
-            for effect in engine.feed(bytes) {
-                switch effect {
-                case .reply(let response): session.write(response)
-                default: DispatchQueue.main.async { [weak self] in self?.onEffect?(effect) }
+            let effects = engine.feed(bytes)
+            if !effects.isEmpty {
+                var title: String?
+                var directory: String?
+                var bell = false
+                var transfer: TerminalEffect?
+                for effect in effects {
+                    switch effect {
+                    case .reply(let response): session.write(response)
+                    case .title(let value): title = value
+                    case .workingDirectory(let path): directory = path
+                    case .bell: bell = true
+                    case .uploadRequest, .download: if transfer == nil { transfer = effect }
+                    }
                 }
+                effectLock.lock()
+                if let title = title { pendingTitle = title }
+                if let directory = directory { pendingDirectory = directory }
+                pendingBell = pendingBell || bell
+                if pendingTransfer == nil { pendingTransfer = transfer }
+                effectLock.unlock()
             }
-            if engine.historyStorageBytes > historyBudget { engine.trimHistory(toBytes: historyBudget) }
+            applyBudget()
             notification.add(data: 1)
         }
+    }
+
+    private func publish() {
+        effectLock.lock()
+        let title = pendingTitle
+        let directory = pendingDirectory
+        let bell = pendingBell
+        let transfer = pendingTransfer
+        pendingTitle = nil
+        pendingDirectory = nil
+        pendingBell = false
+        pendingTransfer = nil
+        effectLock.unlock()
+        if let directory = directory { onEffect?(.workingDirectory(directory)) }
+        if let title = title { onEffect?(.title(title)) }
+        if bell { onEffect?(.bell) }
+        if let transfer = transfer { onEffect?(transfer) }
+        onChange?()
+    }
+
+    private func applyBudget() {
+        if engine.historyStorageBytes > historyBudget { engine.trimHistory(toBytes: historyBudget) }
     }
 
     func resize(columns: Int, rows: Int) {
         queue.async { [self] in
             guard !closed, columns != engine.columns || rows != engine.rows else { return }
             engine.resize(columns: columns, rows: rows)
+            applyBudget()
             session.resize(columns: columns, rows: rows)
             previousWindow = nil
             notification.add(data: 1)
