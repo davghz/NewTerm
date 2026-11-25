@@ -1,12 +1,14 @@
 import UIKit
 import UniformTypeIdentifiers
 import CoreText
+import T3Engine
 
 final class SettingsController: UITableViewController, UIDocumentPickerDelegate {
     private enum Row {
-        case font, size, theme, locale, shelf, arrows, trackpad, bellHUD, vibrate, sound, chargingRate, batteryRate, lowPower, about
+        case preview, font, size, theme, locale, shelf, arrows, trackpad, bellHUD, vibrate, sound, chargingRate, batteryRate, lowPower, about
         var title: String {
             switch self {
+            case .preview: return "Terminal preview"
             case .locale: return "Shell Locale"
             case .font: return "Font"
             case .size: return "Font Size"
@@ -38,7 +40,7 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
             case .chargingRate: return "refreshRateOnAC"
             case .batteryRate: return "refreshRateOnBattery"
             case .lowPower: return "reduceRefreshRateInLPM"
-            case .about: return ""
+            case .preview, .about: return ""
             }
         }
         var names: [String] {
@@ -53,12 +55,19 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
         var isSwitch: Bool { [.bellHUD,.vibrate,.sound,.lowPower].contains(self) }
     }
     private let sections: [(String,[Row])] = [
-        ("Appearance", [.font,.size,.theme]), ("Keyboard", [.shelf,.arrows,.trackpad]),
+        ("Appearance", [.preview,.theme,.font,.size]), ("Keyboard", [.shelf,.arrows,.trackpad]),
         ("Session", [.locale]), ("Bell", [.bellHUD,.vibrate,.sound]), ("Refresh Rate", [.chargingRate,.batteryRate,.lowPower]), ("", [.about])
     ]
+    private var selectedFontName: String {
+        let font = Preferences.font
+        let systemMono = UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
+        return font.fontName == systemMono.fontName ? "SF Mono" : font.fontName
+    }
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Settings"
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 50
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(done))
     }
     override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); tableView.reloadData() }
@@ -69,15 +78,45 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { sections[section].1.count }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let row = sections[indexPath.section].1[indexPath.row]
-        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        if row == .preview { return TerminalPreviewCell() }
+        let largeText = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+        let cell = UITableViewCell(style: largeText ? .subtitle : .value1, reuseIdentifier: nil)
         cell.textLabel?.text = row.title
+        cell.textLabel?.adjustsFontForContentSizeCategory = true
+        cell.detailTextLabel?.adjustsFontForContentSizeCategory = true
+        cell.textLabel?.numberOfLines = 0
+        cell.detailTextLabel?.numberOfLines = largeText ? 0 : 1
         cell.accessoryType = .disclosureIndicator
         let defaults = Preferences.defaults
         switch row {
         case .locale: cell.detailTextLabel?.text = defaults.string(forKey: row.key).flatMap { $0.isEmpty ? nil : $0 } ?? "System"
-        case .font: cell.detailTextLabel?.text = Preferences.font.fontName
-        case .size: cell.detailTextLabel?.text = "\(Int(Preferences.font.pointSize)) pt"
-        case .theme: cell.detailTextLabel?.text = defaults.string(forKey: row.key)
+        case .font: cell.detailTextLabel?.text = selectedFontName
+        case .size:
+            let size = Int(Preferences.font.pointSize)
+            cell.detailTextLabel?.text = "\(size) pt"
+            if !largeText {
+                let stepper = UIStepper()
+                stepper.minimumValue = 8
+                stepper.maximumValue = 36
+                stepper.value = Double(size)
+                stepper.accessibilityLabel = row.title
+                stepper.accessibilityValue = "\(size) points"
+                stepper.addAction(UIAction { [weak self, weak stepper, weak cell] _ in
+                    guard let self = self, let stepper = stepper else { return }
+                    let points = Int(stepper.value)
+                    Preferences.update(points, key: row.key)
+                    cell?.detailTextLabel?.text = "\(points) pt"
+                    stepper.accessibilityValue = "\(points) points"
+                    self.tableView.beginUpdates()
+                    for case let preview as TerminalPreviewCell in self.tableView.visibleCells { preview.update() }
+                    self.tableView.endUpdates()
+                }, for: .valueChanged)
+                cell.accessoryView = stepper
+            }
+        case .theme:
+            let name = defaults.string(forKey: row.key) ?? Palette.names[0]
+            cell.detailTextLabel?.text = name
+            cell.imageView?.image = themeBadge(name)
         case .trackpad, .arrows, .shelf: cell.detailTextLabel?.text = row.names[min(row.names.count-1,max(0, defaults.integer(forKey: row.key)))]
         case .chargingRate, .batteryRate: cell.detailTextLabel?.text = "\(defaults.integer(forKey: row.key)) Hz"
         case .bellHUD,.vibrate,.sound,.lowPower:
@@ -87,14 +126,14 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
             toggle.accessibilityLabel = row.title
             toggle.addAction(UIAction { [weak toggle] _ in Preferences.update(toggle?.isOn ?? false, key: row.key) }, for: .valueChanged)
             cell.accessoryView = toggle
-        case .about: break
+        case .preview, .about: break
         }
         return cell
     }
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let row = sections[indexPath.section].1[indexPath.row]
         tableView.deselectRow(at: indexPath, animated: true)
-        if row.isSwitch { return }
+        if row.isSwitch || row == .preview { return }
         if row == .about {
             navigationController?.pushViewController(AboutController(style: .insetGrouped), animated: true); return
         }
@@ -116,10 +155,10 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
             var fonts = UIFont.familyNames.flatMap { UIFont.fontNames(forFamilyName: $0) }.filter { name in
                 UIFont(name: name, size: 13)?.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) == true
             }
-            fonts += ["SF Mono", Preferences.font.fontName]
+            fonts += ["SF Mono", selectedFontName]
             labels = Array(Set(fonts)).sorted()
             values = labels
-            picked = Preferences.font.fontName
+            picked = selectedFontName
         case .size:
             let sizes = Array(8...36)
             labels = sizes.map { "\($0) pt" }; values = sizes; picked = "\(Int(Preferences.font.pointSize)) pt"
@@ -136,6 +175,7 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
         let picker = ChoiceController(title: row.title, choices: labels, selected: picked) { index in
             Preferences.update(values[index], key: row.key)
         }
+        picker.previewThemes = row == .theme
         if row == .font {
             picker.previewFonts = true
             picker.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Import", style: .plain, target: self, action: #selector(importFont))
@@ -174,10 +214,96 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
     }
 }
 
+private final class TerminalPreviewCell: UITableViewCell {
+    private let canvas = TerminalCanvas()
+    private let heading = UILabel()
+    private let swatches = UIStackView()
+    private var canvasHeight: NSLayoutConstraint!
+
+    init() {
+        super.init(style: .default, reuseIdentifier: nil)
+        selectionStyle = .none
+        isAccessibilityElement = true
+        accessibilityLabel = "Terminal preview"
+        accessibilityIdentifier = "t3rm.appearancePreview"
+        accessibilityTraits = .staticText
+        heading.text = "Preview"
+        heading.font = .preferredFont(forTextStyle: .caption1)
+        heading.adjustsFontForContentSizeCategory = true
+        swatches.spacing = 3
+        let header = UIStackView(arrangedSubviews: [heading, swatches])
+        header.alignment = .center
+        header.spacing = 8
+        for _ in 0..<6 {
+            let chip = UIView()
+            chip.layer.cornerRadius = 2
+            swatches.addArrangedSubview(chip)
+            NSLayoutConstraint.activate([chip.widthAnchor.constraint(equalToConstant: 10), chip.heightAnchor.constraint(equalToConstant: 6)])
+        }
+        canvas.horizontalInset = 0
+        canvas.active = true
+        canvas.isAccessibilityElement = false
+        canvas.accessibilityIdentifier = nil
+        let stack = UIStackView(arrangedSubviews: [header, canvas])
+        stack.axis = .vertical
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+        let margins = contentView.layoutMarginsGuide
+        canvasHeight = canvas.heightAnchor.constraint(equalToConstant: 48)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+            canvasHeight
+        ])
+        update()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func update() {
+        canvas.refreshAppearance()
+        let palette = canvas.palette
+        contentView.backgroundColor = palette.background
+        heading.textColor = palette.foreground
+        for (index, chip) in swatches.arrangedSubviews.enumerated() { chip.backgroundColor = palette.ansi[index + 1] }
+        // Use the shell renderer for the sample so font metrics, ANSI colors and cursor match a real pane.
+        let engine = TerminalEngine(columns: 12, rows: 3)
+        _ = engine.feed(Data("~ > ls -F\r\n\u{1b}[34mLibrary/\u{1b}[0m\r\n~ > ".utf8))
+        let changes = Dictionary(uniqueKeysWithValues: (0..<engine.rows).map { ($0, engine.line(at: $0)) })
+        let frame = TerminalFrame(first: 0, history: 0, start: 0, count: engine.rows, changes: changes,
+                                  cursorColumn: engine.cursorColumn, cursorLine: engine.cursorRow, modes: engine.modes)
+        canvas.apply(frame, fraction: 0)
+        canvasHeight.constant = CGFloat(engine.rows) * canvas.cellSize.height
+        let name = Preferences.defaults.string(forKey: "themeName") ?? Palette.names[0]
+        accessibilityValue = "\(name), \(canvas.font.familyName), \(Int(canvas.font.pointSize)) points"
+    }
+}
+
+private func themeBadge(_ name: String) -> UIImage {
+    let palette = Palette(name: name)
+    let size = CGSize(width: 34, height: 28)
+    return UIGraphicsImageRenderer(size: size).image { _ in
+        let shape = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), cornerRadius: 6)
+        palette.background.setFill()
+        shape.fill()
+        palette.foreground.withAlphaComponent(0.35).setStroke()
+        shape.lineWidth = 1
+        shape.stroke()
+        let type = UIFont.monospacedSystemFont(ofSize: 13, weight: .medium)
+        let attributes: [NSAttributedString.Key: Any] = [.font: type, .foregroundColor: palette.foreground]
+        let sample = "Aa" as NSString
+        let textSize = sample.size(withAttributes: attributes)
+        sample.draw(at: CGPoint(x: (size.width - textSize.width) / 2, y: (size.height - textSize.height) / 2), withAttributes: attributes)
+    }.withRenderingMode(.alwaysOriginal)
+}
+
 private final class ChoiceController: UITableViewController {
     let choices: [String]
     let selected: String?
     var previewFonts = false
+    var previewThemes = false
     let choose: (Int) -> Void
     init(title: String, choices: [String], selected: String?, choose: @escaping (Int) -> Void) {
         self.choices = choices; self.selected = selected; self.choose = choose
@@ -190,8 +316,14 @@ private final class ChoiceController: UITableViewController {
         let cell = tableView.dequeueReusableCell(withIdentifier: "choice") ?? UITableViewCell(style: .default, reuseIdentifier: "choice")
         let option = choices[indexPath.row]
         cell.textLabel?.text = option
-        if previewFonts { cell.textLabel?.font = UIFont(name: option, size: 16) }
+        if previewFonts {
+            let face = UIFont(name: option, size: 16) ?? .monospacedSystemFont(ofSize: 16, weight: .regular)
+            cell.textLabel?.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: face)
+        }
+        cell.textLabel?.adjustsFontForContentSizeCategory = true
+        if previewThemes { cell.imageView?.image = themeBadge(option) }
         cell.accessoryType = selected == option ? .checkmark : .none
+        if selected == option { cell.accessibilityTraits.insert(.selected) } else { cell.accessibilityTraits.remove(.selected) }
         return cell
     }
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

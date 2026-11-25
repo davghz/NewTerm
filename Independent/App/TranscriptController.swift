@@ -6,6 +6,8 @@ final class TranscriptController: UIViewController, UISearchBarDelegate {
     private let field = UISearchBar()
     private let body = UITextView()
     private let count = UILabel()
+    private lazy var previousResult = UIBarButtonItem(image: UIImage(systemName: "chevron.up"), style: .plain, target: self, action: #selector(prev))
+    private lazy var nextResult = UIBarButtonItem(image: UIImage(systemName: "chevron.down"), style: .plain, target: self, action: #selector(advance))
     private var matches: [NSRange] = []
     private var selectedMatch = 0
     private var searchToken = 0
@@ -30,10 +32,19 @@ final class TranscriptController: UIViewController, UISearchBarDelegate {
         view.backgroundColor = .systemBackground
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(done))
         field.placeholder = "Find in terminal"
+        field.searchBarStyle = .minimal
         field.delegate = self
         field.searchTextField.accessibilityIdentifier = "t3rm.searchField"
         field.autocapitalizationType = .none
         field.autocorrectionType = .no
+        let themeName = Preferences.defaults.string(forKey: "themeName")
+        let theme = ThemeSwatch.choices.first { $0.name == themeName } ?? ThemeSwatch.choices[0]
+        let palette = Palette(name: theme.name)
+        body.backgroundColor = palette.background
+        body.textColor = palette.foreground
+        body.tintColor = palette.ansi[6]
+        body.indicatorStyle = theme.light ? .black : .white
+        body.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         body.font = Preferences.font
         body.text = source.text
         body.isEditable = false
@@ -41,14 +52,16 @@ final class TranscriptController: UIViewController, UISearchBarDelegate {
         body.alwaysBounceVertical = true
         body.accessibilityLabel = "Terminal transcript"
         let navigation = UIToolbar()
-        let previous = UIBarButtonItem(image: UIImage(systemName: "chevron.up"), style: .plain, target: self, action: #selector(prev))
-        previous.accessibilityLabel = "Previous result"
-        let next = UIBarButtonItem(image: UIImage(systemName: "chevron.down"), style: .plain, target: self, action: #selector(advance))
-        next.accessibilityLabel = "Next result"
+        previousResult.accessibilityLabel = "Previous result"
+        nextResult.accessibilityLabel = "Next result"
+        previousResult.isEnabled = false
+        nextResult.isEnabled = false
         count.font = .preferredFont(forTextStyle: .caption1)
+        count.adjustsFontForContentSizeCategory = true
+        count.textColor = .secondaryLabel
         navigation.items = [UIBarButtonItem(customView: count), UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
-                            previous, next, UIBarButtonItem(title: "Copy", style: .plain, target: self, action: #selector(copySelection))]
-        let stack = UIStackView(arrangedSubviews: [field, navigation, body])
+                            previousResult, nextResult, UIBarButtonItem(title: "Copy", style: .plain, target: self, action: #selector(copySelection))]
+        let stack = UIStackView(arrangedSubviews: [field, body, navigation])
         stack.axis = .vertical
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
@@ -106,6 +119,8 @@ final class TranscriptController: UIViewController, UISearchBarDelegate {
         queue.addOperation(operation)
     }
     private func displayResult() {
+        previousResult.isEnabled = matches.count > 1
+        nextResult.isEnabled = matches.count > 1
         if let previous = highlight { body.textStorage.removeAttribute(.backgroundColor, range: previous) }
         highlight = nil
         if matches.isEmpty {
@@ -122,6 +137,17 @@ final class TranscriptController: UIViewController, UISearchBarDelegate {
         count.sizeToFit()
     }
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) { field.resignFirstResponder(); displayResult() }
+    override var keyCommands: [UIKeyCommand]? {
+        let find = UIKeyCommand(input: "f", modifierFlags: .command, action: #selector(focusSearch))
+        find.discoverabilityTitle = "Find in Terminal"
+        let forward = UIKeyCommand(input: "g", modifierFlags: .command, action: #selector(advance))
+        forward.discoverabilityTitle = "Next Result"
+        let backward = UIKeyCommand(input: "g", modifierFlags: [.command, .shift], action: #selector(prev))
+        backward.discoverabilityTitle = "Previous Result"
+        let close = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(done))
+        return [find, forward, backward, close]
+    }
+    @objc private func focusSearch() { field.searchTextField.becomeFirstResponder() }
     @objc private func advance() { if !matches.isEmpty { selectedMatch = (selectedMatch+1) % matches.count; displayResult() } }
     @objc private func prev() { if !matches.isEmpty { selectedMatch = (selectedMatch+matches.count-1) % matches.count; displayResult() } }
     @objc private func copySelection() {
