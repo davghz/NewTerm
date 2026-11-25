@@ -124,4 +124,19 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(screenContains("file 100%"))
     }
 
+    func testShellTransferPromptsAndUploadCancellation() {
+        terminal.tap()
+        command("printf '\\033]1337;RequestUpload=format=tgz\\007'; IFS= read -r reply; printf 'upload-%s\\n' \"$reply\"")
+        let upload = app.alerts["Upload a file?"]
+        XCTAssertTrue(upload.waitForExistence(timeout: 5))
+        upload.buttons["Cancel"].tap()
+        XCTAssertTrue(screenContains("upload-abort"))
+        terminal.tap()
+        command("printf '\\033]1337;File=name=bm90ZS50eHQ=;size=3:YWJj\\007'")
+        let download = app.alerts["Save a file?"]
+        XCTAssertTrue(download.waitForExistence(timeout: 5))
+        XCTAssertTrue(download.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "note.txt")).firstMatch.exists)
+        download.buttons["Cancel"].tap()
+    }
+
 }
