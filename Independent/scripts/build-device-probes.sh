@@ -9,7 +9,7 @@ target=arm64-apple-ios15.1.1
 cp Sources/T3PTY/include/*.h "$out/T3PTY"
 printf 'module T3PTY { header "T3PTY.h" export * }\n' > "$out/T3PTY/module.modulemap"
 xcrun clang -target "$target" -isysroot "$sdk" -O2 -I"$out/T3PTY" -c Sources/T3PTY/T3PTY.c -o "$out/pty.o"
-xcrun clang -target "$target" -isysroot "$sdk" -O2 Sources/T3ShellLauncher/main.c -o "$out/T3ShellLauncher"
+xcrun clang -target "$target" -isysroot "$sdk" -O2 -I"$out/T3PTY" Sources/T3PTY/Launcher.c Sources/T3ShellLauncher/main.c -o "$out/T3ShellLauncher"
 swift=(xcrun swiftc -target "$target" -sdk "$sdk" -O -swift-version 5 -I "$out" -I "$out/T3PTY")
 for mod in T3Engine T3Sessions; do
     "${swift[@]}" -module-name "$mod" -emit-library -static -emit-module \

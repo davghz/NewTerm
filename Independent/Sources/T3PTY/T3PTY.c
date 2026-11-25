@@ -123,7 +123,7 @@ static int spawn_launcher(pid_t *pid, const char *launcher, const char *shell,
     if (!error) error = posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT |
                                                   POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK);
     if (!error) {
-        char *args[] = {(char *)launcher, (char *)shell, (char *)directory, (char *)locale, NULL};
+        char *args[] = {"t3rm-pty-helper", (char *)shell, (char *)directory, (char *)locale, NULL};
         error = posix_spawn(pid, launcher, &files, &attributes, args, environ);
     }
     posix_spawnattr_destroy(&attributes);

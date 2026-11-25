@@ -42,6 +42,8 @@ targets:
         script: '"$SRCROOT/scripts/build-helper.sh"'
         inputFiles:
           - "$(SRCROOT)/Sources/T3ShellLauncher/main.c"
+          - "$(SRCROOT)/Sources/T3PTY/Launcher.c"
+          - "$(SRCROOT)/Sources/T3PTY/include/T3LaunchProtocol.h"
           - "$(SRCROOT)/scripts/build-helper.sh"
         outputFiles:
           - "$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/T3ShellLauncher"

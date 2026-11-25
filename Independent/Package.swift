@@ -15,7 +15,7 @@ let package = Package(
         .target(name: "T3Engine"),
         .target(name: "T3PTY", publicHeadersPath: "include"),
         .target(name: "T3Sessions", dependencies: ["T3PTY"]),
-        .executableTarget(name: "T3ShellLauncher"),
+        .executableTarget(name: "T3ShellLauncher", dependencies: ["T3PTY"]),
         .target(name: "T3Gzip", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("z")]),
         .target(name: "T3Integration", dependencies: ["T3Gzip"]),
         .executableTarget(name: "T3Replay", dependencies: ["T3Engine"]),

@@ -11,7 +11,7 @@ objects=()
 for arch in $ARCHS; do
     part="$TARGET_TEMP_DIR/t3-helper/$arch"
     xcrun clang -isysroot "$SDKROOT" -target "${arch}-apple-ios${IPHONEOS_DEPLOYMENT_TARGET}${suffix}" \
-        -O2 -Wall -Wextra "$SRCROOT/Sources/T3ShellLauncher/main.c" -o "$part"
+        -O2 -Wall -Wextra -I"$SRCROOT/Sources/T3PTY/include" "$SRCROOT/Sources/T3PTY/Launcher.c" "$SRCROOT/Sources/T3ShellLauncher/main.c" -o "$part"
     objects+=("$part")
 done
 xcrun lipo -create "${objects[@]}" -output "$output"

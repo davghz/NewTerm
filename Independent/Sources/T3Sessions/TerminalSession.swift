@@ -10,6 +10,15 @@ public final class TerminalSession {
 
     public init() {}
 
+    #if targetEnvironment(simulator)
+    /// CoreSimulator installs only the main executable with execute permission.
+    /// The PTY child dispatches to the same launcher body before UIKit starts.
+    public static func runSimulatorLauncherIfRequested() -> Int32? {
+        guard CommandLine.arguments.first == "t3rm-pty-helper" else { return nil }
+        return t3_run_launcher(CommandLine.argc, CommandLine.unsafeArgv)
+    }
+    #endif
+
     deinit { close() }
 
     public func start(directory: String?, columns: Int, rows: Int,
@@ -17,7 +26,11 @@ public final class TerminalSession {
         guard let executable = Bundle.main.executableURL else {
             throw POSIXError(.ENOENT)
         }
+        #if targetEnvironment(simulator)
+        let launcher = executable.path
+        #else
         let launcher = executable.deletingLastPathComponent().appendingPathComponent("T3ShellLauncher").path
+        #endif
         try start(launcher: launcher, shell: Self.defaultShell, directory: directory,
                   columns: columns, rows: rows, onData: onData, onExit: onExit)
     }
