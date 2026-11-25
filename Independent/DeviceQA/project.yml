@@ -1,0 +1,40 @@
+name: TerminalDeviceQA
+options:
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SDKROOT: iphoneos
+    TARGETED_DEVICE_FAMILY: 1
+    SWIFT_VERSION: 5.0
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: Apple Development
+    GENERATE_INFOPLIST_FILE: YES
+targets:
+  TerminalQAHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.davghz.t3rm.qa.host
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+  TerminalQATests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: TerminalQAHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.davghz.t3rm.qa.tests
+        SWIFT_OBJC_BRIDGING_HEADER: UITests/DeviceQA-Bridging-Header.h
+        TEST_TARGET_NAME: TerminalQAHost
+schemes:
+  TerminalDeviceQA:
+    build:
+      targets:
+        TerminalQAHost: all
+        TerminalQATests: [test]
+    test:
+      targets: [TerminalQATests]
