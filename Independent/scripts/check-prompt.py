@@ -32,7 +32,7 @@ for custom in (False, True):
                     raise AssertionError(f"Missing {expected!r} in zsh PTY")
                 return data
 
-            prompt = until(b"custom > " if custom else b"~ > ")
+            prompt = until(b"custom > " if custom else b" > ")
             assert b"%" not in prompt, "Default prompt still contains a percent sign"
             os.write(master, b"printf 'literal%s\\n' '100%'\r")
             until(b"literal100%")

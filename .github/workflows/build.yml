@@ -16,7 +16,9 @@ jobs:
           sudo xcode-select --switch /Applications/Xcode_16.4.app
           brew install xcodegen dpkg ldid
       - name: Test terminal engine, shell and transfers
-        run: swift test --package-path Independent -c release
+        run: |
+          swift test --package-path Independent -c release
+          python3 Independent/scripts/check-prompt.py
       - name: Test iPhone and iPad workspaces
         working-directory: Independent
         run: |

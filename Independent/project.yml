@@ -50,6 +50,20 @@ targets:
           - "$(SRCROOT)/scripts/build-helper.sh"
         outputFiles:
           - "$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/T3ShellLauncher"
+  T3rmAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [AppTests]
+    dependencies:
+      - target: T3rm
+      - package: T3rmKit
+        product: T3Engine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.davghz.t3rm.apptests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/t3rm.app/t3rm"
+        BUNDLE_LOADER: "$(TEST_HOST)"
   T3rmUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -67,4 +81,4 @@ schemes:
       targets:
         T3rm: all
     test:
-      targets: [T3rmUITests]
+      targets: [T3rmAppTests, T3rmUITests]

@@ -1,4 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
-exec "$root/Independent/scripts/package.sh" production "${1:-$root/packages}"
+output=${1:-packages}
+case "$output" in /*) ;; *) output="$root/$output" ;; esac
+exec "$root/Independent/scripts/package.sh" production "$output"
