@@ -230,29 +230,33 @@ private final class SessionWorker {
         }
     }
 
-    private func hangup(_ group: pid_t) {
-        t3_signal_group(group, terminal.child, SIGHUP)
-        t3_signal_group(group, terminal.child, SIGCONT)
-    }
-
     private func run() {
         var watchingWrite = false
-        var foreground: pid_t = -1
+        var shellSignaled = false
         var killDeadline: DispatchTime?
         var exitCode: Int32 = 1
         while true {
             let pending = applyPending()
             if pending.closing && killDeadline == nil {
-                foreground = t3_foreground(terminal.master)
-                if foreground != terminal.child { hangup(foreground) }
-                hangup(terminal.child)
+                let foreground = t3_foreground(terminal.master)
+                let signaled = t3_signal_foreground(terminal.master, terminal.child, SIGHUP) == 0
+                t3_signal_foreground(terminal.master, terminal.child, SIGCONT)
+                shellSignaled = foreground == terminal.child && signaled
                 killDeadline = .now() + .milliseconds(350)
             }
-            if let deadline = killDeadline, DispatchTime.now() >= deadline {
-                t3_signal_group(foreground, terminal.child, SIGKILL)
-                t3_signal_group(terminal.child, terminal.child, SIGKILL)
-                // A shell can change its session. We still own this unreaped PID.
-                Darwin.kill(terminal.child, SIGKILL)
+            if let deadline = killDeadline {
+                let foreground = t3_foreground(terminal.master)
+                if DispatchTime.now() >= deadline {
+                    // Signal the foreground before terminating its session leader.
+                    t3_signal_foreground(terminal.master, terminal.child, SIGKILL)
+                    Darwin.kill(terminal.child, SIGKILL)
+                } else if !shellSignaled && (foreground <= 1 || foreground == terminal.child) {
+                    // Keep the controlling session attached while a job handles HUP.
+                    // The worker owns this direct child's PID until waitpid reaps it.
+                    Darwin.kill(terminal.child, SIGHUP)
+                    Darwin.kill(terminal.child, SIGCONT)
+                    shellSignaled = true
+                }
             }
 
             if t3_reap(terminal.child, &exitCode) != 0 { break }
@@ -272,9 +276,6 @@ private final class SessionWorker {
             if t3_wait_event(terminal.events, timeout) < 0 { requestClose() }
         }
 
-        if killDeadline != nil && foreground != terminal.child {
-            t3_signal_group(foreground, terminal.child, SIGKILL)
-        }
         // A background descendant may keep writing. Deliver exactly what is
         // readable at shell exit instead of waiting indefinitely for its EOF.
         let available = t3_available(terminal.master)

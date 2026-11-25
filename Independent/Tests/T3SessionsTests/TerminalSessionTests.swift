@@ -166,6 +166,34 @@ final class TerminalSessionTests: XCTestCase {
         XCTAssertFalse(session.tryWrite(Data([1])))
     }
 
+    func testCloseKillsForegroundPipelineAfterItsLeaderExited() throws {
+        let session = TerminalSession(), other = TerminalSession()
+        defer { session.close(); other.close() }
+        let output = try start(session), untouched = try start(other)
+        command("stty -echo; trap '' HUP; true | sh -c 'trap \"\" HUP; printf \"MEMBER=%d!\\n\" \"$$\"; exec sleep 15'", session)
+        XCTAssertTrue(output.waitFor("!\r\n"), output.text)
+        let line = output.text as NSString
+        let pattern = try NSRegularExpression(pattern: "MEMBER=([0-9]+)!")
+        let match = try XCTUnwrap(pattern.firstMatch(in: output.text, range: NSRange(location: 0, length: line.length)))
+        let member = try XCTUnwrap(Int32(line.substring(with: match.range(at: 1))))
+        let group = getpgid(member), sid = getsid(member)
+        XCTAssertGreaterThan(group, 1)
+        XCTAssertNotEqual(group, member)
+        let until = Date().addingTimeInterval(2)
+        while getsid(group) != -1 && Date() < until { Thread.sleep(forTimeInterval: 0.01) }
+        XCTAssertEqual(getsid(group), -1, "The foreground process-group leader must already have exited")
+        session.close()
+        XCTAssertTrue(output.waitForExit(), output.text)
+        let deadline = Date().addingTimeInterval(2)
+        while kill(member, 0) == 0 && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        let survived = getpgid(member) == group && getsid(member) == sid
+        if survived { kill(member, SIGKILL) }
+        XCTAssertFalse(survived)
+        command("printf 'STILL%s\\n' RUNNING; exit 0", other)
+        XCTAssertTrue(untouched.waitForExit())
+        XCTAssertTrue(untouched.text.contains("STILLRUNNING\r\n"))
+    }
+
     func testLargeInputSurvivesPartialWrites() throws {
         let session = TerminalSession()
         defer { session.close() }

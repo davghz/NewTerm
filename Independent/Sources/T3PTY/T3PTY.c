@@ -10,6 +10,7 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <termios.h>
 
 extern char **environ;
 
@@ -71,8 +72,18 @@ pid_t t3_foreground(int fd) {
     return ioctl(fd, TIOCGPGRP, &group) < 0 ? -1 : group;
 }
 
-void t3_signal_group(pid_t group, pid_t session, int signal_number) {
-    if (group > 1 && getsid(group) == session) kill(-group, signal_number);
+/* The PTY driver signals its current foreground pgrp under its tty lock. A
+   pipeline's group can outlive its leader. Never reuse a saved numeric pgid. */
+int t3_signal_foreground(int master, pid_t session, int signal_number) {
+    if (tcgetsid(master) != session) return -1;
+    // TIOCSIG normally flushes pending output. Preserve its final bytes for
+    // the worker's exit drain while shutting down this terminal.
+    struct termios settings;
+    if (tcgetattr(master, &settings) == 0 && !(settings.c_lflag & NOFLSH)) {
+        settings.c_lflag |= NOFLSH;
+        tcsetattr(master, TCSANOW, &settings);
+    }
+    return ioctl(master, TIOCSIG, signal_number);
 }
 
 int t3_reap(pid_t child, int *exit_code) {
