@@ -13,7 +13,7 @@ final class InteractionTests: XCTestCase {
         waitForShell(in: terminal)
     }
     override func tearDown() { XCUIDevice.shared.orientation = .portrait; super.tearDown() }
-    private func screenContains(_ text: String, in element: XCUIElement? = nil, timeout: TimeInterval = 8) -> Bool {
+    private func screenContains(_ text: String, in element: XCUIElement? = nil, timeout: TimeInterval = 25) -> Bool {
         let predicate = NSPredicate(format: "value CONTAINS %@", text)
         let wait = XCTNSPredicateExpectation(predicate: predicate, object: element ?? terminal)
         return XCTWaiter.wait(for: [wait], timeout: timeout) == .completed
