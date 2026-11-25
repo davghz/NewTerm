@@ -1,6 +1,7 @@
 import Foundation
 import T3Engine
 import T3Sessions
+import T3Integration
 
 struct TerminalFrame {
     let first: Int
@@ -83,13 +84,16 @@ final class TerminalModel {
                 var directory: String?
                 var bell = false
                 var transfer: TerminalEffect?
+                var rejectedUpload = false
                 for effect in effects {
                     switch effect {
                     case .reply(let response): session.write(response)
                     case .title(let value): title = value
                     case .workingDirectory(let path): directory = path
                     case .bell: bell = true
-                    case .uploadRequest, .download: if transfer == nil { transfer = effect }
+                    case .uploadRequest:
+                        if transfer == nil { transfer = effect } else { rejectedUpload = true }
+                    case .download: if transfer == nil { transfer = effect }
                     }
                 }
                 effectLock.lock()
@@ -97,7 +101,9 @@ final class TerminalModel {
                 if let directory = directory { pendingDirectory = directory }
                 pendingBell = pendingBell || bell
                 if pendingTransfer == nil { pendingTransfer = transfer }
+                else if case .uploadRequest? = transfer { rejectedUpload = true }
                 effectLock.unlock()
+                if rejectedUpload { session.write(TransferArchive.cancel) }
             }
             applyBudget()
             notification.add(data: 1)

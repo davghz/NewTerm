@@ -111,6 +111,14 @@ final class TerminalInput: UITextView, UITextViewDelegate {
             super.insertText(text)
         }
     }
+    override func insertDictationResult(_ dictationResult: [UIDictationPhrase]) {
+        let value = dictationResult.map(\.text).joined()
+        hasComposition = false
+        text = ""
+        backgroundColor = .clear
+        textColor = .clear
+        if !value.isEmpty { onKey?(.text(value), []) }
+    }
     func textViewDidChange(_ textView: UITextView) { deliver() }
     private func deliver() {
         guard markedTextRange == nil && !hasComposition else { return }

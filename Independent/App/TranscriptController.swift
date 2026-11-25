@@ -9,7 +9,14 @@ final class TranscriptController: UIViewController, UISearchBarDelegate {
     private var matches: [NSRange] = []
     private var selectedMatch = 0
     private var searchToken = 0
-    private let queue = DispatchQueue(label: "t3rm.search", qos: .userInitiated)
+    private let queue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "t3rm.search"
+        queue.qualityOfService = .userInitiated
+        queue.maxConcurrentOperationCount = 1
+        return queue
+    }()
+    private var highlight: NSRange?
 
     init(_ source: Transcript, search: Bool) {
         self.source = source
@@ -70,36 +77,46 @@ final class TranscriptController: UIViewController, UISearchBarDelegate {
         }
     }
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        queue.cancelAllOperations()
         searchToken += 1
         let token = searchToken
         selectedMatch = 0
         matches = []
         if searchText.isEmpty { displayResult(); return }
         let original = source.text as NSString
-        queue.async { [weak self] in
+        let operation = BlockOperation()
+        operation.addExecutionBlock { [weak self, weak operation] in
+            guard let operation = operation, !operation.isCancelled else { return }
             var found: [NSRange] = []
             var start = 0
-            while start < original.length && found.count < 10_000 {
+            while start < original.length && found.count < 10_000 && !operation.isCancelled {
                 let remaining = NSRange(location: start, length: original.length-start)
                 let range = original.range(of: searchText, options: [.caseInsensitive], range: remaining)
                 guard range.location != NSNotFound && range.length > 0 else { break }
                 found.append(range)
                 start = NSMaxRange(range)
             }
+            guard !operation.isCancelled else { return }
             DispatchQueue.main.async {
                 guard let self = self, self.searchToken == token else { return }
                 self.matches = found
                 self.displayResult()
             }
         }
+        queue.addOperation(operation)
     }
     private func displayResult() {
+        if let previous = highlight { body.textStorage.removeAttribute(.backgroundColor, range: previous) }
+        highlight = nil
         if matches.isEmpty {
             count.text = field.text?.isEmpty == false ? "No results" : ""
             body.selectedRange = NSRange(location: 0, length: 0)
         } else {
             count.text = "\(selectedMatch + 1) of \(matches.count)"
-            body.selectedRange = matches[selectedMatch]
+            let match = matches[selectedMatch]
+            body.textStorage.addAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.45), range: match)
+            highlight = match
+            body.selectedRange = match
             body.scrollRangeToVisible(matches[selectedMatch])
         }
         count.sizeToFit()
