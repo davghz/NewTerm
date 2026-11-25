@@ -14,14 +14,16 @@ private final class SplitHandle: UIView {
         accessibilityLabel = "Resize split"
         accessibilityIdentifier = "t3rm.divider"
         accessibilityHint = "Drag to resize adjacent panes"
-        backgroundColor = .secondarySystemBackground
-        grip.backgroundColor = .tertiaryLabel
         grip.isUserInteractionEnabled = false
         grip.layer.cornerRadius = 1.5
         addSubview(grip)
         addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(drag(_:))))
     }
     required init?(coder: NSCoder) { fatalError() }
+    func apply(_ chrome: TerminalChrome) {
+        backgroundColor = chrome.surface
+        grip.backgroundColor = chrome.secondary
+    }
     override func layoutSubviews() {
         super.layoutSubviews()
         let size = axis == .horizontal ? CGSize(width: 3, height: min(28,bounds.height)) : CGSize(width: min(28,bounds.width), height: 3)
@@ -45,6 +47,13 @@ final class PaneDeck: UIView {
     var changed: (([CGFloat]) -> Void)?
     var axis: NSLayoutConstraint.Axis = .vertical { didSet { if oldValue != axis { setNeedsLayout() } } }
     private let handleSize: CGFloat = 12
+    private var chrome = TerminalChrome.current
+
+    func apply(_ appearance: TerminalChrome) {
+        chrome = appearance
+        backgroundColor = appearance.stroke
+        for handle in handles { handle.apply(appearance) }
+    }
 
     func display(_ panes: [TerminalPane], weights: [CGFloat]) {
         for pane in paneViews where !panes.contains(where: { $0 === pane }) { pane.removeFromSuperview() }
@@ -55,6 +64,7 @@ final class PaneDeck: UIView {
         for pane in panes where pane.superview !== self { addSubview(pane) }
         for index in 0..<max(0, panes.count - 1) {
             let handle = SplitHandle()
+            handle.apply(chrome)
             handle.begin = { [weak self] in self?.setResizing(true) }
             handle.end = { [weak self] in self?.setResizing(false) }
             handle.adjust = { [weak self] delta in self?.move(index: index, by: delta) }

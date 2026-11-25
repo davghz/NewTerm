@@ -23,6 +23,14 @@ final class InteractionTests: XCTestCase {
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value MATCHES %@", "(?s).*\\S.*"), object: element)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 45), .completed, "No initial shell output. \(app.debugDescription)")
     }
+    private func openSettings() {
+        if app.buttons["t3rm.settings"].isHittable {
+            app.buttons["t3rm.settings"].tap()
+        } else {
+            app.buttons["t3rm.actions"].tap()
+            app.buttons["Settings"].tap()
+        }
+    }
     private func attachScreen(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
@@ -104,7 +112,12 @@ final class InteractionTests: XCTestCase {
         terminal.tap()
         command("cd /tmp && printf '\\033]7;file://localhost%s\\007' \"$PWD\" && printf 'cwd-%s\\n' set")
         XCTAssertTrue(screenContains("cwd-set"))
-        app.buttons["t3rm.split"].tap()
+        if app.buttons["t3rm.split"].isHittable {
+            app.buttons["t3rm.split"].tap()
+        } else {
+            app.buttons["t3rm.actions"].tap()
+            app.buttons["Split Pane"].tap()
+        }
         let divider = app.descendants(matching: .any)["t3rm.divider"].firstMatch
         XCTAssertTrue(divider.waitForExistence(timeout: 5))
         let all = app.descendants(matching: .any).matching(identifier: "t3rm.terminal")
@@ -133,6 +146,49 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [customPrompt], timeout: 25), .completed, "Visible terminal text: \(terminal.value as? String ?? "")")
         command("printf '%s%s\\n' 'file ' '100%'")
         XCTAssertTrue(screenContains("file 100%"), "Visible terminal text: \(terminal.value as? String ?? "")")
+    }
+
+    func testWorkspaceThemePreviewAndKeyboardShelf() throws {
+        // Track the selected session while the terminal and keyboard change appearance.
+        terminal.tap()
+        command("printf '\\033]0;Workspace\\007'")
+        app.buttons["t3rm.newTab"].tap()
+        let active = app.buttons["t3rm.tab.2"]
+        XCTAssertTrue(active.waitForExistence(timeout: 5))
+        XCTAssertTrue(active.isSelected)
+        waitForShell(in: terminal)
+        terminal.tap()
+        command("uname -sm")
+        XCTAssertTrue(screenContains("Darwin"))
+        let right = app.buttons["Right arrow"]
+        XCTAssertTrue(right.isHittable)
+        XCTAssertLessThanOrEqual(right.frame.maxX, app.frame.maxX)
+        let function = app.buttons["Function keys"]
+        function.tap()
+        XCTAssertTrue(app.buttons["F1"].isHittable)
+        XCTAssertTrue(function.isSelected)
+        function.tap()
+        XCTAssertTrue(right.isHittable)
+        attachScreen("Session tabs and terminal keys")
+
+        openSettings()
+        let preview = app.descendants(matching: .any)["t3rm.appearancePreview"].firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 5))
+        let original = try XCTUnwrap((preview.value as? String)?.components(separatedBy: ", ").first)
+        let other = original == "Paper" ? "Midnight" : "Paper"
+        attachScreen("Appearance settings")
+        app.staticTexts["Color Theme"].tap()
+        app.staticTexts[other].tap()
+        XCTAssertTrue(screenContains(other, in: preview))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(active.isSelected)
+        XCTAssertTrue(screenContains("Darwin"))
+        attachScreen("Alternate terminal theme")
+
+        openSettings()
+        app.staticTexts["Color Theme"].tap()
+        app.staticTexts[original].tap()
+        XCTAssertTrue(screenContains(original, in: preview))
     }
 
     func testShellTransferPromptsAndUploadCancellation() {

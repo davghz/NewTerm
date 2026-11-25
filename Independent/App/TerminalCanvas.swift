@@ -21,13 +21,15 @@ final class TerminalCanvas: UIView {
     private var fixedPitch = true
     private(set) var frameData: TerminalFrame?
     var fraction: CGFloat = 0
-    var horizontalInset: CGFloat = 4
+    var horizontalInset: CGFloat = 7
+    private var drawnSize = CGSize.zero
     var active = false { didSet { if oldValue != active { setNeedsDisplay() } } }
     var activate: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = true
+        contentMode = .topLeft
         isAccessibilityElement = true
         accessibilityIdentifier = "t3rm.terminal"
         accessibilityLabel = "Terminal"
@@ -44,6 +46,14 @@ final class TerminalCanvas: UIView {
             }.filter { !$0.isEmpty }.joined(separator: "\n")
         }
         set {}
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if bounds.size != drawnSize {
+            drawnSize = bounds.size
+            setNeedsDisplay()
+        }
     }
 
     func refreshAppearance() {

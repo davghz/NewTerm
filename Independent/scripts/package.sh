@@ -24,7 +24,7 @@ if [[ "$variant" == production ]]; then app="$temp/deb/var/jb/Applications/t3rm.
 ditto "$derived/Build/Products/Release-iphoneos/t3rm.app" "$app"
 ldid -S "$app/T3ShellLauncher"
 ldid -S"packaging/terminal.entitlements" "$app/t3rm"
-version=0.2.0~alpha1
+version=0.2.0~alpha2
 cat > "$temp/deb/DEBIAN/control" <<EOF
 Package: $identifier
 Name: $display

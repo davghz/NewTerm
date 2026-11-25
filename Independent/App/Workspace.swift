@@ -86,9 +86,9 @@ private final class TerminalTab {
 }
 
 final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
-    private let toolbar = UIStackView()
-    private let tabStrip = UIScrollView()
-    private let tabButtons = UIStackView()
+    private let toolbar = WorkspaceBar()
+    private let headerBackground = UIView()
+    private var chrome = TerminalChrome.current
     private let panes = PaneDeck()
     private let root = UIStackView()
     private var tabs: [TerminalTab] = []
@@ -101,46 +101,58 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
         root.axis = .vertical
         root.translatesAutoresizingMaskIntoConstraints = false
-        toolbar.axis = .horizontal
-        toolbar.alignment = .center
-        toolbar.spacing = 2
-        tabButtons.spacing = 4
-        tabButtons.translatesAutoresizingMaskIntoConstraints = false
-        tabStrip.showsHorizontalScrollIndicator = false
-        tabStrip.addSubview(tabButtons)
-        toolbar.addArrangedSubview(tabStrip)
-        tabStrip.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        headerBackground.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(headerBackground)
         view.addSubview(root)
         root.addArrangedSubview(toolbar)
         root.addArrangedSubview(panes)
         panes.changed = { [weak self] weights in self?.current.weights = weights }
-        panes.backgroundColor = .separator
         NSLayoutConstraint.activate([
             root.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
             root.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             root.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             root.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 44),
-            tabStrip.heightAnchor.constraint(equalTo: toolbar.heightAnchor),
-            tabButtons.leadingAnchor.constraint(equalTo: tabStrip.contentLayoutGuide.leadingAnchor, constant: 4),
-            tabButtons.trailingAnchor.constraint(equalTo: tabStrip.contentLayoutGuide.trailingAnchor, constant: -4),
-            tabButtons.topAnchor.constraint(equalTo: tabStrip.contentLayoutGuide.topAnchor),
-            tabButtons.bottomAnchor.constraint(equalTo: tabStrip.contentLayoutGuide.bottomAnchor),
-            tabButtons.heightAnchor.constraint(equalTo: tabStrip.frameLayoutGuide.heightAnchor)
+            toolbar.heightAnchor.constraint(equalToConstant: 46),
+            headerBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerBackground.topAnchor.constraint(equalTo: view.topAnchor),
+            headerBackground.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor)
         ])
-        control("plus", label: "New tab", id: "newTab", action: #selector(newTab))
-        control("rectangle.split.2x1", label: "Split pane", id: "split", action: #selector(splitPane))
-        control("magnifyingglass", label: "Search terminal", id: "search", action: #selector(search))
-        control("gearshape", label: "Settings", id: "settings", action: #selector(settings))
-        let more = control("ellipsis.circle", label: "Terminal actions", id: "actions", action: nil)
-        more.showsMenuAsPrimaryAction = true
+        toolbar.connect(to: self, add: #selector(newTab), splitPane: #selector(splitPane),
+                        find: #selector(search), preferences: #selector(settings))
+        toolbar.selectTab = { [weak self] index in self?.selectTab(index) }
+        toolbar.makeMenu = { [weak self] compact in self?.actionMenu(compact: compact) ?? UIMenu(children: []) }
+        NotificationCenter.default.addObserver(self, selector: #selector(applyAppearance),
+                                               name: .terminalSettingsChanged, object: nil)
+        applyAppearance()
+        newTab()
+    }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle { chrome.isDark ? .lightContent : .darkContent }
+
+    @objc private func applyAppearance() {
+        let palette = Palette(name: Preferences.defaults.string(forKey: "themeName") ?? "Midnight")
+        chrome = TerminalChrome(palette: palette)
+        view.backgroundColor = palette.background
+        view.tintColor = chrome.accent
+        headerBackground.backgroundColor = chrome.surface
+        toolbar.apply(chrome)
+        toolbar.overrideUserInterfaceStyle = chrome.isDark ? .dark : .light
+        panes.apply(chrome)
+        if let panel = presentedViewController as? UINavigationController { stylePanel(panel) }
+        if !tabs.isEmpty { markActive() }
+        setNeedsStatusBarAppearanceUpdate()
+    }
+
+    private func actionMenu(compact: Bool) -> UIMenu {
         var actions = [
             UIAction(title: "Show Keyboard", image: UIImage(systemName: "keyboard")) { [weak self] _ in self?.current.active?.focus() },
             UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in self?.current.active?.pasteContent() },
-            UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { [weak self] _ in self?.current.active?.showTranscript(search: false) },
+            UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { [weak self] _ in self?.current.active?.showTranscript(search: false) }
+        ]
+        let close = [
             UIAction(title: "Close Pane", image: UIImage(systemName: "xmark"), attributes: .destructive) { [weak self] _ in self?.closePane() },
             UIAction(title: "Close Tab", image: UIImage(systemName: "xmark.square"), attributes: .destructive) { [weak self] _ in self?.closeTab() }
         ]
@@ -149,21 +161,15 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
                 UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil)
             }, at: 0)
         }
-        more.menu = UIMenu(children: actions)
-        newTab()
-    }
-
-    @discardableResult
-    private func control(_ icon: String, label: String, id: String, action: Selector?) -> UIButton {
-        let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: icon), for: .normal)
-        button.accessibilityLabel = label
-        button.accessibilityIdentifier = "t3rm." + id
-        if let action = action { button.addTarget(self, action: action, for: .touchUpInside) }
-        button.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 44).isActive = true
-        toolbar.addArrangedSubview(button)
-        return button
+        var sections: [UIMenuElement] = []
+        if compact {
+            let split = UIAction(title: "Split Pane", image: UIImage(systemName: "rectangle.split.2x1")) { [weak self] _ in self?.splitPane() }
+            let settings = UIAction(title: "Settings", image: UIImage(systemName: "gearshape")) { [weak self] _ in self?.settings() }
+            sections.append(UIMenu(options: .displayInline, children: [split, settings]))
+        }
+        sections.append(UIMenu(options: .displayInline, children: actions))
+        sections.append(UIMenu(options: .displayInline, children: close))
+        return UIMenu(children: sections)
     }
 
     @objc private func newTab() {
@@ -192,7 +198,7 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         pane.onTranscript = { [weak self, weak pane] transcript, search in
             guard let self = self, self.current.active === pane, self.presentedViewController == nil else { return }
             let controller = TranscriptController(transcript, search: search)
-            self.present(UINavigationController(rootViewController: controller), animated: true)
+            self.presentPanel(controller)
         }
         pane.onError = { [weak self] value in self?.alert("Terminal", value) }
         pane.onUpload = { [weak self, weak pane] in
@@ -228,35 +234,16 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         for (index,pane) in current.panes.enumerated() {
             pane.active = index == current.activeIndex
             pane.layer.borderWidth = current.panes.count > 1 && pane.active ? 1 : 0
-            pane.layer.borderColor = view.tintColor.cgColor
+            pane.layer.borderColor = chrome.accent.cgColor
         }
     }
 
     private func refreshTabs() {
-        for button in tabButtons.arrangedSubviews { tabButtons.removeArrangedSubview(button); button.removeFromSuperview() }
-        for (index, tab) in tabs.enumerated() {
-            let button = UIButton(type: .system)
-            var config = index == selected ? UIButton.Configuration.tinted() : UIButton.Configuration.plain()
-            config.title = tab.title
-            config.titleLineBreakMode = .byTruncatingTail
-            config.contentInsets = NSDirectionalEdgeInsets(top: 3, leading: 9, bottom: 3, trailing: 9)
-            button.configuration = config
-            button.accessibilityLabel = tab.title
-            button.accessibilityHint = "Switch to this terminal tab"
-            button.accessibilityIdentifier = "t3rm.tab.\(index + 1)"
-            button.accessibilityTraits = index == selected ? [.button, .selected] : .button
-            button.addAction(UIAction { [weak self] _ in self?.selectTab(index) }, for: .touchUpInside)
-            button.widthAnchor.constraint(lessThanOrEqualToConstant: 145).isActive = true
-            tabButtons.addArrangedSubview(button)
-        }
-        tabStrip.layoutIfNeeded()
-        if tabButtons.arrangedSubviews.indices.contains(selected) {
-            let selectedButton = tabButtons.arrangedSubviews[selected]
-            tabStrip.scrollRectToVisible(selectedButton.convert(selectedButton.bounds, to: tabStrip), animated: false)
-        }
+        toolbar.show(titles: tabs.map(\.title), selected: selected)
     }
     @objc private func splitPane() {
         let tab = current
+        let wasTyping = tab.active?.input.isFirstResponder == true
         let pane = makePane(directory: tab.active?.directory, tab: tab)
         let half = tab.weights[tab.activeIndex] / 2
         tab.weights[tab.activeIndex] = half
@@ -264,15 +251,18 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         tab.panes.insert(pane, at: tab.activeIndex + 1)
         tab.activeIndex += 1
         displayPanes()
+        if wasTyping { pane.focus() }
     }
     @objc private func closePane() {
         if current.panes.count == 1 { closeTab(); return }
+        let wasTyping = current.active?.input.isFirstResponder == true
         let pane = current.panes.remove(at: current.activeIndex)
         current.weights.remove(at: current.activeIndex)
         pane.model.close()
         HistoryBudget.shared.remove(pane)
         current.activeIndex = min(current.activeIndex, current.panes.count - 1)
         displayPanes()
+        if wasTyping { current.active?.focus() }
     }
     @objc private func closeTab() {
         let removed = tabs.remove(at: selected)
@@ -300,7 +290,18 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
     @objc private func search() { current.active?.showTranscript(search: true) }
     @objc private func settings() {
         guard presentedViewController == nil else { return }
-        present(UINavigationController(rootViewController: SettingsController(style: .insetGrouped)), animated: true)
+        presentPanel(SettingsController(style: .insetGrouped))
+    }
+
+    private func presentPanel(_ controller: UIViewController) {
+        let navigation = UINavigationController(rootViewController: controller)
+        stylePanel(navigation)
+        present(navigation, animated: true)
+    }
+
+    private func stylePanel(_ panel: UINavigationController) {
+        panel.overrideUserInterfaceStyle = chrome.isDark ? .dark : .light
+        panel.view.tintColor = chrome.accent
     }
 
     override var keyCommands: [UIKeyCommand]? {

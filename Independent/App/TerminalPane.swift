@@ -143,6 +143,10 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     @objc private func settingsChanged() {
         canvas.refreshAppearance()
         input.font = Preferences.font
+        let chrome = TerminalChrome(palette: canvas.palette)
+        input.keyboardAppearance = chrome.isDark ? .dark : .light
+        status.textColor = chrome.text
+        status.backgroundColor = chrome.raised
         trackpad.isEnabled = Preferences.defaults.integer(forKey: "keyboardTrackpadSensitivity") > 0
         input.inputAccessoryView = shelf
         shelf.rebuild()
@@ -170,14 +174,14 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         busyWithLayout = true
-        scroll.frame = bounds
-        canvas.frame = CGRect(origin: scroll.contentOffset, size: bounds.size)
+        scroll.frame = bounds.inset(by: UIEdgeInsets(top: 5, left: 0, bottom: 0, right: 0))
+        canvas.frame = CGRect(origin: scroll.contentOffset, size: scroll.bounds.size)
         status.frame = CGRect(x: 4, y: 0, width: max(1,bounds.width-8), height: 34)
         positionInput()
         busyWithLayout = false
         guard !resizing, bounds.width > 20, bounds.height > 20 else { return }
         let newColumns = max(2, Int((bounds.width - 2 * canvas.horizontalInset)/canvas.cellSize.width))
-        let newRows = max(1, Int(bounds.height / canvas.cellSize.height))
+        let newRows = max(1, Int(scroll.bounds.height / canvas.cellSize.height))
         guard columns != newColumns || rowCount != newRows else { return }
         columns = newColumns
         rowCount = newRows
@@ -237,11 +241,11 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
                 self.busyWithLayout = true
                 self.lastFirstLine = data.first
                 let height = self.canvas.cellSize.height
-                self.scroll.contentSize = CGSize(width: self.bounds.width, height: self.bounds.height + CGFloat(data.history)*height)
+                self.scroll.contentSize = CGSize(width: self.scroll.bounds.width, height: self.scroll.bounds.height + CGFloat(data.history)*height)
                 let partial = self.following || data.start != top ? 0 : fraction
                 let y = CGFloat(data.start-data.first)*height + partial
                 self.scroll.contentOffset = CGPoint(x: 0, y: y)
-                self.canvas.frame = CGRect(origin: self.scroll.contentOffset, size: self.bounds.size)
+                self.canvas.frame = CGRect(origin: self.scroll.contentOffset, size: self.scroll.bounds.size)
                 self.canvas.apply(data, fraction: partial)
                 self.positionInput()
                 self.busyWithLayout = false
@@ -263,7 +267,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
         let frame = canvas.frameData
         let row = (frame?.cursorLine ?? 0) - (frame?.start ?? 0)
         let x = min(max(0, bounds.width - 40), canvas.horizontalInset + CGFloat(frame?.cursorColumn ?? 0)*cell.width)
-        let y = min(max(0, bounds.height-cell.height), max(0, CGFloat(row)*cell.height - canvas.fraction))
+        let y = scroll.frame.minY + min(max(0, scroll.bounds.height - cell.height), max(0, CGFloat(row)*cell.height - canvas.fraction))
         input.frame = CGRect(x: x, y: y, width: min(180, max(40, bounds.width - x)), height: cell.height)
         input.isUserInteractionEnabled = true
     }

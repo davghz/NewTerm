@@ -16,7 +16,7 @@ Review packages install beside the existing app. To build an in-place upgrade fo
 
 ## Use t3rm
 
-Tap the terminal to type. Use **+** for a shell tab and the split button for another pane. Search and copy terminal text from the workspace. Use **More** on the keyboard toolbar for paste, navigation and function keys. Locally installed Claude Code, Codex, OpenCode, and terminal editors run in ordinary shell sessions.
+Tap the terminal to type. Use **+** for a shell tab and the magnifying glass to search. On a narrow screen, the **…** menu contains **Split Pane** and **Settings**. Wider windows show both controls in the tab bar. The keyboard shelf keeps **Esc**, **Ctrl**, **Alt**, and **Fn** within reach. Locally installed Claude Code, Codex, OpenCode, and terminal editors run in ordinary shell sessions.
 
 [Build instructions and simulator tests](Independent/README.md) · [Physical-device checks](Independent/DeviceQA) · [Report an issue](https://github.com/davghz/t3rm/issues)
 

@@ -10,7 +10,7 @@ enum Preferences {
     static var sizeKey: String { isPad ? "fontSizePad" : "fontSizePhone" }
     static func register() {
         defaults.register(defaults: ["fontName": "Menlo-Regular", "fontSizePhone": 13, "fontSizePad": 15,
-            "themeName": "Midnight", "keyboardAccessoryStyle": 0, "keyboardArrowsStyle": 0,
+            "themeName": "Midnight", "keyboardAccessoryStyle": 0, "keyboardArrowsStyle": 2,
             "keyboardTrackpadSensitivity": 2, "bellHUD": true, "bellVibrate": false, "bellSound": false,
             "refreshRateOnAC": 60, "refreshRateOnBattery": 60, "reduceRefreshRateInLPM": true])
         var urls = (try? FileManager.default.contentsOfDirectory(at: fontsDirectory, includingPropertiesForKeys: nil)) ?? []
@@ -67,6 +67,7 @@ private extension UIColor {
 }
 
 struct Palette {
+    let isDark: Bool
     let background: UIColor
     let foreground: UIColor
     let ansi: [UIColor]
@@ -74,6 +75,7 @@ struct Palette {
     init(name: String) {
         let swatch = ThemeSwatch.choices.first { $0.name == name } ?? ThemeSwatch.choices[0]
         let light = swatch.light
+        isDark = !light
         background = UIColor(hex: swatch.background)
         foreground = UIColor(hex: swatch.foreground)
         ansi = (light ? [
@@ -102,5 +104,42 @@ extension UIColor {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         getRed(&r, green: &g, blue: &b, alpha: &a)
         return .rgb(Int((r * 255).rounded()), Int((g * 255).rounded()), Int((b * 255).rounded()))
+    }
+}
+
+/// The terminal theme also supplies the surrounding controls' contrast and surfaces.
+struct TerminalChrome {
+    let isDark: Bool
+    let surface: UIColor
+    let raised: UIColor
+    let stroke: UIColor
+    let text: UIColor
+    let secondary: UIColor
+    let accent: UIColor
+    let accentFill: UIColor
+
+    static var current: Self { Self(palette: Palette(name: Preferences.defaults.string(forKey: "themeName") ?? "Midnight")) }
+
+    init(palette: Palette) {
+        isDark = palette.isDark
+        let base = palette.background
+        let ink = palette.foreground
+        surface = base.mixed(with: ink, amount: isDark ? 0.035 : 0.025)
+        raised = base.mixed(with: ink, amount: isDark ? 0.10 : 0.065)
+        stroke = base.mixed(with: ink, amount: isDark ? 0.20 : 0.19)
+        text = ink
+        secondary = base.mixed(with: ink, amount: isDark ? 0.73 : 0.78)
+        accent = UIColor(hex: isDark ? 0x63dfb4 : 0x00644d)
+        accentFill = base.mixed(with: accent, amount: isDark ? 0.15 : 0.11)
+    }
+}
+
+private extension UIColor {
+    func mixed(with color: UIColor, amount: CGFloat) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        var rr: CGFloat = 0, gg: CGFloat = 0, bb: CGFloat = 0, aa: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        color.getRed(&rr, green: &gg, blue: &bb, alpha: &aa)
+        return UIColor(red: r + (rr-r)*amount, green: g + (gg-g)*amount, blue: b + (bb-b)*amount, alpha: 1)
     }
 }

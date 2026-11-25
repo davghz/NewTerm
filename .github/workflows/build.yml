@@ -37,6 +37,14 @@ jobs:
             ${{ runner.temp }}/t3rm-production/*.sha256
           if-no-files-found: error
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t3rm-ios15-review-deb
+          path: |
+            ${{ runner.temp }}/t3rm-review/*.deb
+            ${{ runner.temp }}/t3rm-review/*.sha256
+          if-no-files-found: error
+
   ui:
     name: UI tests (${{ matrix.family }})
     runs-on: macos-15

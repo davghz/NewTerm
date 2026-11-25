@@ -24,7 +24,7 @@ def output(*command):
 
 digest = hashlib.sha256(deb.read_bytes()).hexdigest()
 require(deb.with_name(deb.name + ".sha256").read_text().split() == [digest, deb.name], "Bad package checksum")
-for field, value in {"Package": bundle, "Architecture": "iphoneos-arm64", "Version": "0.2.0~alpha1"}.items():
+for field, value in {"Package": bundle, "Architecture": "iphoneos-arm64", "Version": "0.2.0~alpha2"}.items():
     require(output("dpkg-deb", "-f", str(deb), field) == value, f"Wrong Debian {field}")
 with tempfile.TemporaryDirectory() as scratch:
     root = pathlib.Path(scratch)
@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as scratch:
     info = plistlib.loads((app / "Info.plist").read_bytes())
     require(info["CFBundleIdentifier"] == bundle, "Bundle identifier mismatch")
     require(info["MinimumOSVersion"] == "15.1.1", "Deployment target mismatch")
-    require(info["CFBundleVersion"] == "4" and info["CFBundleShortVersionString"] == "0.2.0", "Build version mismatch")
+    require(info["CFBundleVersion"] == "5" and info["CFBundleShortVersionString"] == "0.2.0", "Build version mismatch")
     require(set(info["UIDeviceFamily"]) == {1,2}, "Missing iPhone/iPad support")
     require(info["CFBundleURLTypes"][0]["CFBundleURLSchemes"] == [url_scheme], "URL scheme collision")
     for name in ["t3rm", "T3ShellLauncher"]:
