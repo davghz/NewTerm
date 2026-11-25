@@ -197,32 +197,57 @@ final class KeyShelf: UIInputView {
     var pasteAction: (() -> Void)?
     var selectionAction: (() -> Void)?
     var dismissAction: (() -> Void)?
+
+    private enum Page { case navigation, function, more }
+    private var page = Page.navigation
     private var modifiers: UIKeyModifierFlags = []
-    private var page = 0
-    private let stack = UIStackView()
+    private var modifierButtons: [(UIKeyModifierFlags, UIButton)] = []
+    private var pageButtons: [(Page, UIButton)] = []
+    private let controls = UIStackView()
+    private let keys = UIStackView()
     private let scroll = UIScrollView()
+    private let separator = UIView()
+    private let edge = UIView()
+    private var chrome = TerminalChrome.current
+    private var usesIcons = false
 
     init() {
-        super.init(frame: CGRect(x: 0, y: 0, width: 360, height: 44), inputViewStyle: .keyboard)
+        super.init(frame: CGRect(x: 0, y: 0, width: 375, height: 46), inputViewStyle: .keyboard)
         autoresizingMask = [.flexibleWidth]
-        stack.axis = .horizontal
-        stack.spacing = 4
-        stack.alignment = .fill
-        scroll.showsHorizontalScrollIndicator = false
-        scroll.alwaysBounceHorizontal = false
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scroll)
-        scroll.addSubview(stack)
+        // Keep escape, modifiers and page switches within reach as the extra keys scroll.
+        for item in [controls, separator, scroll, edge] {
+            item.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(item)
+        }
+        keys.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(keys)
+        scroll.delaysContentTouches = false
+        scroll.isDirectionalLockEnabled = true
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.showsVerticalScrollIndicator = false
+        let pixel = 1 / UIScreen.main.scale
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: topAnchor), scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 4),
-            stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -4),
-            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 3),
-            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -3),
-            stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor, constant: -6)
+            controls.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
+            controls.topAnchor.constraint(equalTo: topAnchor),
+            controls.bottomAnchor.constraint(equalTo: bottomAnchor),
+            separator.leadingAnchor.constraint(equalTo: controls.trailingAnchor, constant: 5),
+            separator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            separator.widthAnchor.constraint(equalToConstant: pixel),
+            separator.heightAnchor.constraint(equalToConstant: 20),
+            scroll.leadingAnchor.constraint(equalTo: separator.trailingAnchor, constant: 5),
+            scroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
+            scroll.topAnchor.constraint(equalTo: topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            keys.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            keys.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            keys.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            keys.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            keys.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+            keys.widthAnchor.constraint(greaterThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor),
+            edge.leadingAnchor.constraint(equalTo: leadingAnchor),
+            edge.trailingAnchor.constraint(equalTo: trailingAnchor),
+            edge.topAnchor.constraint(equalTo: topAnchor),
+            edge.heightAnchor.constraint(equalToConstant: pixel)
         ])
         rebuild()
     }
@@ -230,90 +255,145 @@ final class KeyShelf: UIInputView {
 
     func consume() -> UIKeyModifierFlags {
         let value = modifiers
-        if !value.isEmpty { modifiers = []; rebuild() }
+        if !value.isEmpty {
+            modifiers = []
+            updateSelection()
+        }
         return value
     }
+
     func rebuild() {
-        for item in stack.arrangedSubviews { stack.removeArrangedSubview(item); item.removeFromSuperview() }
-        let icons = Preferences.defaults.integer(forKey: "keyboardAccessoryStyle") == 1
-        let symbols = ["esc": "escape", "ctrl": "control", "alt": "option", "fn": "function",
-                       "•••": "ellipsis", "⇥": "arrow.right.to.line", "←": "arrow.left",
-                       "↓": "arrow.down", "↑": "arrow.up", "→": "arrow.right"]
-        func makeButton(_ title: String, name: String? = nil, selected: Bool = false,
-                        compact: Bool = false, action: @escaping () -> Void) -> UIButton {
-            let key = UIButton(type: .system)
-            var config = UIButton.Configuration.tinted()
-            if icons, let symbol = symbols[title], let image = UIImage(systemName: symbol) {
-                config.image = image
-                config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: compact ? 11 : 14, weight: .medium)
-            } else { config.title = title }
-            config.baseForegroundColor = selected ? .white : .label
-            config.baseBackgroundColor = selected ? .systemBlue : .secondarySystemFill
-            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: compact ? 2 : 7, bottom: 0, trailing: compact ? 2 : 7)
-            key.configuration = config
-            key.accessibilityLabel = name ?? title
-            key.accessibilityTraits = selected ? [.button, .selected] : .button
-            key.addAction(UIAction { _ in action() }, for: .touchUpInside)
-            key.widthAnchor.constraint(greaterThanOrEqualToConstant: compact ? 29 : 34).isActive = true
-            return key
-        }
-        func button(_ title: String, name: String? = nil, selected: Bool = false, action: @escaping () -> Void) {
-            stack.addArrangedSubview(makeButton(title, name: name, selected: selected, action: action))
-        }
-        func character(_ title: String, _ key: TerminalKey, _ label: String? = nil) {
-            button(title, name: label) { [weak self] in self?.send?(key) }
-        }
-        func toggle(_ title: String, _ flag: UIKeyModifierFlags) {
-            button(title, selected: modifiers.contains(flag)) { [weak self] in
+        chrome = .current
+        usesIcons = Preferences.defaults.integer(forKey: "keyboardAccessoryStyle") == 1
+        backgroundColor = chrome.surface
+        separator.backgroundColor = chrome.stroke
+        edge.backgroundColor = chrome.stroke
+        scroll.indicatorStyle = chrome.isDark ? .white : .black
+        for button in controls.arrangedSubviews { button.removeFromSuperview() }
+        modifierButtons.removeAll()
+        pageButtons.removeAll()
+        controls.addArrangedSubview(character("esc", .escape, label: "Escape", symbol: "escape"))
+        for (title, symbol, flag) in [("ctrl", "control", UIKeyModifierFlags.control), ("alt", "option", .alternate)] {
+            let button = makeButton(title, symbol: symbol) { [weak self] in
                 guard let self = self else { return }
-                if self.modifiers.contains(flag) { self.modifiers.remove(flag) } else { self.modifiers.insert(flag) }
-                self.rebuild()
+                self.modifiers.formSymmetricDifference(flag)
+                self.updateSelection()
             }
+            controls.addArrangedSubview(button)
+            modifierButtons.append((flag, button))
         }
-        character("esc", .escape, "Escape")
-        toggle("ctrl", .control); toggle("alt", .alternate)
-        button("fn", name: "Function keys", selected: page == 1) { [weak self] in self?.switchPage(1) }
-        button("•••", name: "More keys", selected: page == 2) { [weak self] in self?.switchPage(2) }
-        switch page {
-        case 1: for n in 1...12 { character("F\(n)", .function(n)) }
-        case 2:
-            for (title,key) in [("Home",TerminalKey.home), ("End",.end), ("PgUp",.pageUp), ("PgDn",.pageDown),
-                                ("Ins",.insert), ("Del",.delete)] { character(title,key) }
-            for symbol in ["/","|","~","-","_","\\","`"] { character(symbol, .text(symbol)) }
-            button("Paste") { [weak self] in self?.pasteAction?() }
-            button("Select") { [weak self] in self?.selectionAction?() }
-            button("Hide") { [weak self] in self?.dismissAction?() }
-        default:
-            character("⇥", .tab, "Tab")
-            let style = Preferences.defaults.integer(forKey: "keyboardArrowsStyle")
-            let keys: [(String,TerminalKey,String)] = [("←",.left,"Left arrow"), ("↓",.down,"Down arrow"),
-                                                        ("↑",.up,"Up arrow"), ("→",.right,"Right arrow")]
-            func arrow(_ index: Int, _ title: String? = nil, compact: Bool = false) -> UIButton {
-                let item = keys[index]
-                return makeButton(title ?? item.0, name: item.2, compact: compact) { [weak self] in self?.send?(item.1) }
+        for (title, label, symbol, next) in [("fn", "Function keys", "function", Page.function),
+                                             ("…", "More keys", "ellipsis", .more)] {
+            let button = makeButton(title, label: label, symbol: symbol) { [weak self] in
+                guard let self = self else { return }
+                self.page = self.page == next ? .navigation : next
+                self.showPage()
+                UIAccessibility.post(notification: .layoutChanged, argument: self.pageButtons.first { $0.0 == next }?.1)
             }
-            switch style {
-            case 0, 1:
-                stack.addArrangedSubview(arrow(0))
-                let middle = UIStackView(arrangedSubviews: [arrow(2, compact: true), arrow(1, compact: true)])
-                middle.axis = .vertical
-                middle.distribution = .fillEqually
-                if style == 1 { middle.spacing = 2 }
-                stack.addArrangedSubview(middle)
-                stack.addArrangedSubview(arrow(3))
-            case 3,4:
-                let captions = style == 3 ? ["h","j","k","l"] : ["h","k","j","l"]
-                let order = style == 3 ? [0,1,2,3] : [0,2,1,3]
-                for index in order.indices {
-                    stack.addArrangedSubview(arrow(order[index], captions[index]))
-                }
-            default: for index in keys.indices { stack.addArrangedSubview(arrow(index)) }
-            }
+            controls.addArrangedSubview(button)
+            pageButtons.append((next, button))
         }
+        showPage()
     }
-    private func switchPage(_ next: Int) {
-        page = page == next ? 0 : next
-        rebuild()
+
+    private func updateSelection() {
+        for (flag, button) in modifierButtons { button.isSelected = modifiers.contains(flag) }
+        for (item, button) in pageButtons { button.isSelected = page == item }
+    }
+
+    private func makeButton(_ title: String, label: String? = nil, symbol: String? = nil,
+                            compact: Bool = false, action: @escaping () -> Void) -> UIButton {
+        let button = UIButton(type: .custom)
+        let font = UIFont.monospacedSystemFont(ofSize: compact ? 11 : 13, weight: .semibold)
+        var config = UIButton.Configuration.plain()
+        let useSymbol = usesIcons || title == "…"
+        if useSymbol, let symbol = symbol, let image = UIImage(systemName: symbol) {
+            config.image = image
+            config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: compact ? 10 : 14, weight: .semibold)
+        } else {
+            var legend = AttributedString(title)
+            legend.font = font
+            config.attributedTitle = legend
+        }
+        config.contentInsets = .zero
+        config.cornerStyle = .fixed
+        config.background.cornerRadius = compact ? 4 : 7
+        let inset: CGFloat = compact ? 0 : 6
+        config.background.backgroundInsets = NSDirectionalEdgeInsets(top: inset, leading: 2, bottom: inset, trailing: 2)
+        button.configuration = config
+        button.configurationUpdateHandler = { [chrome] key in
+            guard var style = key.configuration else { return }
+            let active = key.isSelected || key.isHighlighted
+            style.baseForegroundColor = active ? chrome.accent : chrome.text
+            style.background.backgroundColor = active ? chrome.accentFill : chrome.raised
+            style.background.strokeColor = key.isSelected ? chrome.accent : chrome.stroke
+            style.background.strokeWidth = key.isSelected ? 1 : 0.5
+            key.configuration = style
+        }
+        button.accessibilityLabel = label ?? title
+        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        let minimum: CGFloat = Preferences.isPad ? 46 : 34
+        let legendWidth = config.image == nil ? (title as NSString).size(withAttributes: [.font: font]).width : 0
+        button.widthAnchor.constraint(equalToConstant: max(minimum, ceil(legendWidth) + 10)).isActive = true
+        return button
+    }
+
+    private func character(_ title: String, _ key: TerminalKey, label: String? = nil,
+                           symbol: String? = nil, compact: Bool = false) -> UIButton {
+        makeButton(title, label: label, symbol: symbol, compact: compact) { [weak self] in self?.send?(key) }
+    }
+
+    private func showPage() {
+        for item in keys.arrangedSubviews { item.removeFromSuperview() }
+        let spacer = UIView()
+        let preferredWidth = spacer.widthAnchor.constraint(equalToConstant: 0)
+        preferredWidth.priority = .defaultLow
+        preferredWidth.isActive = true
+        switch page {
+        case .navigation:
+            keys.addArrangedSubview(spacer)
+            keys.addArrangedSubview(character("⇥", .tab, label: "Tab", symbol: "arrow.right.to.line"))
+            addArrows()
+        case .function:
+            for n in 1...12 { keys.addArrangedSubview(character("F\(n)", .function(n))) }
+            keys.addArrangedSubview(spacer)
+        case .more:
+            for (title, key) in [("Home", TerminalKey.home), ("End", .end), ("PgUp", .pageUp),
+                                 ("PgDn", .pageDown), ("Ins", .insert), ("Del", .delete)] {
+                keys.addArrangedSubview(character(title, key))
+            }
+            for symbol in ["/", "|", "~", "-", "_", "\\", "`"] { keys.addArrangedSubview(character(symbol, .text(symbol))) }
+            keys.addArrangedSubview(makeButton("Paste") { [weak self] in self?.pasteAction?() })
+            keys.addArrangedSubview(makeButton("Select") { [weak self] in self?.selectionAction?() })
+            keys.addArrangedSubview(makeButton("Hide") { [weak self] in self?.dismissAction?() })
+            keys.addArrangedSubview(spacer)
+        }
+        updateSelection()
+        scroll.showsHorizontalScrollIndicator = page != .navigation
         scroll.setContentOffset(.zero, animated: false)
+    }
+
+    private func addArrows() {
+        let style = Preferences.defaults.integer(forKey: "keyboardArrowsStyle")
+        let vim = style == 3 || style == 4
+        let left = character(vim ? "h" : "←", .left, label: "Left arrow", symbol: vim ? nil : "arrow.left")
+        let right = character(vim ? "l" : "→", .right, label: "Right arrow", symbol: vim ? nil : "arrow.right")
+        let paired = style == 0 || style == 1
+        let up = character(vim ? "k" : "↑", .up, label: "Up arrow", symbol: vim ? nil : "arrow.up", compact: paired)
+        let down = character(vim ? "j" : "↓", .down, label: "Down arrow", symbol: vim ? nil : "arrow.down", compact: paired)
+        keys.addArrangedSubview(left)
+        if paired {
+            let middle = UIStackView(arrangedSubviews: [up, down])
+            middle.axis = .vertical
+            middle.distribution = .fillEqually
+            middle.isLayoutMarginsRelativeArrangement = true
+            middle.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0)
+            middle.spacing = style == 1 ? 3 : 1
+            keys.addArrangedSubview(middle)
+        } else {
+            keys.addArrangedSubview(style == 4 ? up : down)
+            keys.addArrangedSubview(style == 4 ? down : up)
+        }
+        keys.addArrangedSubview(right)
     }
 }
