@@ -15,7 +15,7 @@ struct TerminalFrame {
 
 struct Transcript {
     let text: String
-    let lineOffsets: [Int]
+    let anchor: Int?
 }
 
 final class TerminalModel {
@@ -112,6 +112,13 @@ final class TerminalModel {
         }
     }
 
+    func setColors(foreground: TerminalColor, background: TerminalColor) {
+        queue.async { [self] in
+            engine.defaultForegroundRGB = foreground
+            engine.defaultBackgroundRGB = background
+        }
+    }
+
     func trim(bytes: Int) {
         queue.async { [self] in
             historyBudget = bytes
@@ -155,20 +162,33 @@ final class TerminalModel {
         }
     }
 
-    func transcript(_ completion: @escaping (Transcript) -> Void) {
+    func transcript(line target: Int?, column: Int?, _ completion: @escaping (Transcript) -> Void) {
         queue.async { [self] in
             var text = ""
-            var offsets: [Int] = []
+            var selection: Int?
             var offset = 0
-            for index in 0..<(engine.historyCount + engine.rows) {
-                offsets.append(offset)
-                var line = engine.line(at: index).filter { $0.width > 0 }.map(\.text).joined()
-                while line.last == " " { line.removeLast() }
-                if index > 0 { text.append("\n") }
+            let count = engine.historyCount + engine.rows
+            let first = engine.discardedHistoryLines
+            for index in 0..<count {
+                let cells = engine.line(at: index)
+                let wrapped = engine.wrappedLength(at: index)
+                let used = min(wrapped ?? cells.count, cells.count)
+                var line = ""
+                var textOffset = 0
+                for pos in 0..<used where cells[pos].width > 0 {
+                    let cell = cells[pos]
+                    if first + index == target, let column = column,
+                       (pos..<(pos + cell.width)).contains(column) { selection = offset + textOffset }
+                    line += cell.text
+                    textOffset += cell.text.utf16.count
+                }
+                if wrapped == nil { while line.last == " " { line.removeLast() } }
                 text.append(line)
-                offset += line.utf16.count + 1
+                offset += line.utf16.count
+                if wrapped == nil && index + 1 < count { text.append("\n"); offset += 1 }
             }
-            let result = Transcript(text: text, lineOffsets: offsets)
+            let anchor = selection.map { min($0, max(0, offset - 1)) }
+            let result = Transcript(text: text, anchor: anchor)
             DispatchQueue.main.async { completion(result) }
         }
     }

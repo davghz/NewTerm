@@ -1,5 +1,6 @@
 import UIKit
 import CoreText
+import T3Engine
 
 extension Notification.Name { static let terminalSettingsChanged = Notification.Name("TerminalSettingsChanged") }
 
@@ -9,11 +10,15 @@ enum Preferences {
     static var sizeKey: String { isPad ? "fontSizePad" : "fontSizePhone" }
     static func register() {
         defaults.register(defaults: ["fontName": "Menlo-Regular", "fontSizePhone": 13, "fontSizePad": 15,
-            "themeName": "Midnight", "keyboardAccessoryStyle": "standard", "keyboardArrowsStyle": "horizontal",
-            "keyboardTrackpadSensitivity": 1.0, "bellHUD": true, "bellVibrate": false, "bellSound": false,
+            "themeName": "Midnight", "keyboardAccessoryStyle": 0, "keyboardArrowsStyle": 0,
+            "keyboardTrackpadSensitivity": 2, "bellHUD": true, "bellVibrate": false, "bellSound": false,
             "refreshRateOnAC": 60, "refreshRateOnBattery": 60, "reduceRefreshRateInLPM": true])
-        if let urls = try? FileManager.default.contentsOfDirectory(at: fontsDirectory, includingPropertiesForKeys: nil) {
-            for url in urls { CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) }
+        var urls = (try? FileManager.default.contentsOfDirectory(at: fontsDirectory, includingPropertiesForKeys: nil)) ?? []
+        for ext in ["ttf","otf","ttc"] {
+            urls += Bundle.main.urls(forResourcesWithExtension: ext, subdirectory: nil) ?? []
+        }
+        for url in urls where ["ttf","otf","ttc"].contains(url.pathExtension.lowercased()) {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
     }
     static var fontsDirectory: URL {
@@ -22,8 +27,22 @@ enum Preferences {
     }
     static var font: UIFont {
         let size = CGFloat(max(8, min(36, defaults.double(forKey: sizeKey))))
-        return UIFont(name: defaults.string(forKey: "fontName") ?? "", size: size)
-            ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        let requested = defaults.string(forKey: "fontName") ?? ""
+        let normalized = requested.lowercased().filter { $0.isLetter || $0.isNumber }
+        if ["sfmono","sfmonoregular","system","systemmonospace"].contains(normalized) {
+            return UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        }
+        if let face = UIFont(name: requested, size: size) { return face }
+        for family in UIFont.familyNames {
+            let faces = UIFont.fontNames(forFamilyName: family)
+            let clean: (String) -> String = { $0.lowercased().filter { $0.isLetter || $0.isNumber } }
+            if clean(family) == normalized {
+                let face = faces.first(where: { $0.lowercased().hasSuffix("regular") }) ?? faces.first
+                if let face = face, let font = UIFont(name: face, size: size) { return font }
+            }
+            if let match = faces.first(where: { clean($0) == normalized }), let font = UIFont(name: match, size: size) { return font }
+        }
+        return UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
     static func update(_ value: Any, key: String) {
         defaults.set(value, forKey: key)
@@ -74,5 +93,13 @@ struct Palette {
         }
         let gray = CGFloat(8 + 10 * (n - 232)) / 255
         return UIColor(white: gray, alpha: 1)
+    }
+}
+
+extension UIColor {
+    var terminalRGB: TerminalColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        return .rgb(Int((r * 255).rounded()), Int((g * 255).rounded()), Int((b * 255).rounded()))
     }
 }

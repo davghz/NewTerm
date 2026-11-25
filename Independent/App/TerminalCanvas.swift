@@ -1,6 +1,7 @@
 import UIKit
 import CoreText
 import T3Engine
+import os.signpost
 
 private struct GlyphRun {
     let column: Int
@@ -11,6 +12,7 @@ private struct GlyphRun {
 }
 
 final class TerminalCanvas: UIView {
+    private static let performance = OSLog(subsystem: Bundle.main.bundleIdentifier ?? "t3rm", category: "TerminalRenderer")
     private(set) var font = Preferences.font
     private(set) var palette = Palette(name: Preferences.defaults.string(forKey: "themeName") ?? "")
     private(set) var cellSize = CGSize(width: 8, height: 16)
@@ -60,6 +62,9 @@ final class TerminalCanvas: UIView {
     }
 
     func apply(_ data: TerminalFrame, fraction: CGFloat) {
+        let trace = OSSignpostID(log: Self.performance)
+        os_signpost(.begin, log: Self.performance, name: "LayoutRows", signpostID: trace)
+        defer { os_signpost(.end, log: Self.performance, name: "LayoutRows", signpostID: trace) }
         let old = frameData
         let moved = old?.start != data.start || old?.count != data.count || self.fraction != fraction
         self.fraction = fraction
@@ -119,7 +124,7 @@ final class TerminalCanvas: UIView {
             index += max(1, cell.width)
             // Draw simple monospace runs together. A grapheme needing fallback gets
             // its own origin so a proportional fallback cannot displace later cells.
-            if cell.width == 1 && cell.text.utf8.count == 1 {
+            if font.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) && cell.width == 1 && cell.text.utf8.count == 1 {
                 while index < cells.count && cells[index].width == 1 && cells[index].text.utf8.count == 1 &&
                         cells[index].style == cell.style {
                     string += cells[index].text
@@ -145,6 +150,9 @@ final class TerminalCanvas: UIView {
     }
 
     override func draw(_ rect: CGRect) {
+        let trace = OSSignpostID(log: Self.performance)
+        os_signpost(.begin, log: Self.performance, name: "DrawRows", signpostID: trace)
+        defer { os_signpost(.end, log: Self.performance, name: "DrawRows", signpostID: trace) }
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
         palette.background.setFill()
         ctx.fill(rect)

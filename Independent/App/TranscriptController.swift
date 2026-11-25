@@ -2,8 +2,6 @@ import UIKit
 
 final class TranscriptController: UIViewController, UISearchBarDelegate {
     private let source: Transcript
-    private let initialLine: Int?
-    private let initialColumn: Int?
     private let startsInSearch: Bool
     private let field = UISearchBar()
     private let body = UITextView()
@@ -13,10 +11,8 @@ final class TranscriptController: UIViewController, UISearchBarDelegate {
     private var searchToken = 0
     private let queue = DispatchQueue(label: "t3rm.search", qos: .userInitiated)
 
-    init(_ source: Transcript, line: Int?, column: Int?, search: Bool) {
+    init(_ source: Transcript, search: Bool) {
         self.source = source
-        initialLine = line
-        initialColumn = column
         startsInSearch = search
         super.init(nibName: nil, bundle: nil)
     }
@@ -59,12 +55,8 @@ final class TranscriptController: UIViewController, UISearchBarDelegate {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if startsInSearch { field.becomeFirstResponder() }
-        else if let line = initialLine, source.lineOffsets.indices.contains(line) {
-            let start = source.lineOffsets[line]
-            let end = line + 1 < source.lineOffsets.count ? source.lineOffsets[line+1]-1 : source.text.utf16.count
-            guard end > start else { return }
-            let position = min(end-1, start + max(0, initialColumn ?? 0))
-            var range = NSRange(location: start, length: end - start)
+        else if let position = source.anchor, source.text.utf16.count > position {
+            var range = (source.text as NSString).rangeOfComposedCharacterSequence(at: position)
             if let cursor = body.position(from: body.beginningOfDocument, offset: position),
                let word = body.tokenizer.rangeEnclosingPosition(cursor, with: .word, inDirection: UITextDirection(rawValue: 0)) {
                 let offset = body.offset(from: body.beginningOfDocument, to: word.start)

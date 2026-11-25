@@ -4,9 +4,10 @@ import CoreText
 
 final class SettingsController: UITableViewController, UIDocumentPickerDelegate {
     private enum Row {
-        case font, size, theme, shelf, arrows, trackpad, bellHUD, vibrate, sound, chargingRate, batteryRate, lowPower, about
+        case font, size, theme, locale, shelf, arrows, trackpad, bellHUD, vibrate, sound, chargingRate, batteryRate, lowPower, about
         var title: String {
             switch self {
+            case .locale: return "Shell Locale"
             case .font: return "Font"
             case .size: return "Font Size"
             case .theme: return "Color Theme"
@@ -24,6 +25,7 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
         }
         var key: String {
             switch self {
+            case .locale: return "preferredLocale"
             case .font: return "fontName"
             case .size: return Preferences.sizeKey
             case .theme: return "themeName"
@@ -52,7 +54,7 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
     }
     private let sections: [(String,[Row])] = [
         ("Appearance", [.font,.size,.theme]), ("Keyboard", [.shelf,.arrows,.trackpad]),
-        ("Bell", [.bellHUD,.vibrate,.sound]), ("Refresh Rate", [.chargingRate,.batteryRate,.lowPower]), ("", [.about])
+        ("Session", [.locale]), ("Bell", [.bellHUD,.vibrate,.sound]), ("Refresh Rate", [.chargingRate,.batteryRate,.lowPower]), ("", [.about])
     ]
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -72,6 +74,7 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
         cell.accessoryType = .disclosureIndicator
         let defaults = Preferences.defaults
         switch row {
+        case .locale: cell.detailTextLabel?.text = defaults.string(forKey: row.key).flatMap { $0.isEmpty ? nil : $0 } ?? "System"
         case .font: cell.detailTextLabel?.text = Preferences.font.fontName
         case .size: cell.detailTextLabel?.text = "\(Int(Preferences.font.pointSize)) pt"
         case .theme: cell.detailTextLabel?.text = defaults.string(forKey: row.key)
@@ -100,11 +103,20 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
         let values: [Any]
         let picked: String?
         switch row {
+        case .locale:
+            let current = defaults.string(forKey: row.key) ?? ""
+            var available = Set(Locale.availableIdentifiers.map { $0 + ".UTF-8" })
+            available.formUnion(["C", "C.UTF-8", "en_US.UTF-8"])
+            if !current.isEmpty { available.insert(current) }
+            let identifiers = available.sorted()
+            labels = ["System"] + identifiers
+            values = [""] + identifiers
+            picked = current.isEmpty ? "System" : current
         case .font:
             var fonts = UIFont.familyNames.flatMap { UIFont.fontNames(forFamilyName: $0) }.filter { name in
                 UIFont(name: name, size: 13)?.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) == true
             }
-            fonts.append(Preferences.font.fontName)
+            fonts += ["SF Mono", Preferences.font.fontName]
             labels = Array(Set(fonts)).sorted()
             values = labels
             picked = Preferences.font.fontName

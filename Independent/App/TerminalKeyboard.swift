@@ -2,6 +2,7 @@ import UIKit
 import T3Engine
 
 enum TerminalKey {
+    case keypad(normal: String, application: String)
     case text(String), backspace, escape, tab, backtab, up, down, left, right, home, end, insert, delete, pageUp, pageDown, function(Int)
 
     func bytes(modes: TerminalModes, modifiers: UIKeyModifierFlags = []) -> Data {
@@ -14,6 +15,7 @@ enum TerminalKey {
         func numeric(_ n: Int) -> String { "\(esc)[\(n)" + (modifier == 1 ? "~" : ";\(modifier)~") }
         let encoded: String
         switch self {
+        case .keypad(let normal, let application): encoded = modes.applicationKeypad ? esc + "O" + application : normal
         case .text(let text):
             var bytes = Data()
             for char in text {
@@ -137,6 +139,24 @@ final class TerminalInput: UITextView, UITextViewDelegate {
             }
             let terminalKey: TerminalKey?
             switch key.keyCode {
+            case .keypad0: terminalKey = .keypad(normal: "0", application: "p")
+            case .keypad1: terminalKey = .keypad(normal: "1", application: "q")
+            case .keypad2: terminalKey = .keypad(normal: "2", application: "r")
+            case .keypad3: terminalKey = .keypad(normal: "3", application: "s")
+            case .keypad4: terminalKey = .keypad(normal: "4", application: "t")
+            case .keypad5: terminalKey = .keypad(normal: "5", application: "u")
+            case .keypad6: terminalKey = .keypad(normal: "6", application: "v")
+            case .keypad7: terminalKey = .keypad(normal: "7", application: "w")
+            case .keypad8: terminalKey = .keypad(normal: "8", application: "x")
+            case .keypad9: terminalKey = .keypad(normal: "9", application: "y")
+            case .keypadPeriod: terminalKey = .keypad(normal: ".", application: "n")
+            case .keypadComma: terminalKey = .keypad(normal: ",", application: "l")
+            case .keypadEnter: terminalKey = .keypad(normal: "\r", application: "M")
+            case .keypadPlus: terminalKey = .keypad(normal: "+", application: "k")
+            case .keypadHyphen: terminalKey = .keypad(normal: "-", application: "m")
+            case .keypadAsterisk: terminalKey = .keypad(normal: "*", application: "j")
+            case .keypadSlash: terminalKey = .keypad(normal: "/", application: "o")
+            case .keypadEqualSign: terminalKey = .keypad(normal: "=", application: "X")
             case .keyboardUpArrow: terminalKey = .up
             case .keyboardDownArrow: terminalKey = .down
             case .keyboardLeftArrow: terminalKey = .left
@@ -153,7 +173,7 @@ final class TerminalInput: UITextView, UITextViewDelegate {
                  .keyboardF7, .keyboardF8, .keyboardF9, .keyboardF10, .keyboardF11, .keyboardF12:
                 terminalKey = .function(Int(key.keyCode.rawValue - UIKeyboardHIDUsage.keyboardF1.rawValue) + 1)
             default:
-                if key.modifierFlags.contains(.control), !key.charactersIgnoringModifiers.isEmpty {
+                if (key.modifierFlags.contains(.control) || key.modifierFlags.contains(.alternate)), !key.charactersIgnoringModifiers.isEmpty {
                     terminalKey = .text(key.charactersIgnoringModifiers)
                 } else { terminalKey = nil }
             }
@@ -207,19 +227,30 @@ final class KeyShelf: UIInputView {
     }
     func rebuild() {
         for item in stack.arrangedSubviews { stack.removeArrangedSubview(item); item.removeFromSuperview() }
-        func button(_ title: String, name: String? = nil, selected: Bool = false, action: @escaping () -> Void) {
+        let icons = Preferences.defaults.integer(forKey: "keyboardAccessoryStyle") == 1
+        let symbols = ["esc": "escape", "ctrl": "control", "alt": "option", "fn": "function",
+                       "•••": "ellipsis", "⇥": "arrow.right.to.line", "←": "arrow.left",
+                       "↓": "arrow.down", "↑": "arrow.up", "→": "arrow.right"]
+        func makeButton(_ title: String, name: String? = nil, selected: Bool = false,
+                        compact: Bool = false, action: @escaping () -> Void) -> UIButton {
             let key = UIButton(type: .system)
             var config = UIButton.Configuration.tinted()
-            config.title = title
+            if icons, let symbol = symbols[title], let image = UIImage(systemName: symbol) {
+                config.image = image
+                config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: compact ? 11 : 14, weight: .medium)
+            } else { config.title = title }
             config.baseForegroundColor = selected ? .white : .label
             config.baseBackgroundColor = selected ? .systemBlue : .secondarySystemFill
-            config.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 7, bottom: 2, trailing: 7)
+            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: compact ? 2 : 7, bottom: 0, trailing: compact ? 2 : 7)
             key.configuration = config
             key.accessibilityLabel = name ?? title
             key.accessibilityTraits = selected ? [.button, .selected] : .button
             key.addAction(UIAction { _ in action() }, for: .touchUpInside)
-            key.widthAnchor.constraint(greaterThanOrEqualToConstant: 34).isActive = true
-            stack.addArrangedSubview(key)
+            key.widthAnchor.constraint(greaterThanOrEqualToConstant: compact ? 29 : 34).isActive = true
+            return key
+        }
+        func button(_ title: String, name: String? = nil, selected: Bool = false, action: @escaping () -> Void) {
+            stack.addArrangedSubview(makeButton(title, name: name, selected: selected, action: action))
         }
         func character(_ title: String, _ key: TerminalKey, _ label: String? = nil) {
             button(title, name: label) { [weak self] in self?.send?(key) }
@@ -246,8 +277,30 @@ final class KeyShelf: UIInputView {
             button("Hide") { [weak self] in self?.dismissAction?() }
         default:
             character("⇥", .tab, "Tab")
-            character("←", .left, "Left arrow"); character("↓", .down, "Down arrow")
-            character("↑", .up, "Up arrow"); character("→", .right, "Right arrow")
+            let style = Preferences.defaults.integer(forKey: "keyboardArrowsStyle")
+            let keys: [(String,TerminalKey,String)] = [("←",.left,"Left arrow"), ("↓",.down,"Down arrow"),
+                                                        ("↑",.up,"Up arrow"), ("→",.right,"Right arrow")]
+            func arrow(_ index: Int, _ title: String? = nil, compact: Bool = false) -> UIButton {
+                let item = keys[index]
+                return makeButton(title ?? item.0, name: item.2, compact: compact) { [weak self] in self?.send?(item.1) }
+            }
+            switch style {
+            case 0, 1:
+                stack.addArrangedSubview(arrow(0))
+                let middle = UIStackView(arrangedSubviews: [arrow(2, compact: true), arrow(1, compact: true)])
+                middle.axis = .vertical
+                middle.distribution = .fillEqually
+                if style == 1 { middle.spacing = 2 }
+                stack.addArrangedSubview(middle)
+                stack.addArrangedSubview(arrow(3))
+            case 3,4:
+                let captions = style == 3 ? ["h","j","k","l"] : ["h","k","j","l"]
+                let order = style == 3 ? [0,1,2,3] : [0,2,1,3]
+                for index in order.indices {
+                    stack.addArrangedSubview(arrow(order[index], captions[index]))
+                }
+            default: for index in keys.indices { stack.addArrangedSubview(arrow(index)) }
+            }
         }
     }
     private func switchPage(_ next: Int) {

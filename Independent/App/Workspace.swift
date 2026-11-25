@@ -4,30 +4,64 @@ import T3Integration
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
-    var window: UIWindow?
-    private let workspace = WorkspaceController()
+    private var workspaces: [String: WorkspaceController] = [:]
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         Preferences.register()
         UIDevice.current.isBatteryMonitoringEnabled = true
-        let window = UIWindow(frame: UIScreen.main.bounds)
-        window.rootViewController = workspace
+        return true
+    }
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let config = UISceneConfiguration(name: "Terminal", sessionRole: session.role)
+        config.delegateClass = TerminalSceneDelegate.self
+        return config
+    }
+    func workspace(for session: UISceneSession) -> WorkspaceController {
+        if let existing = workspaces[session.persistentIdentifier] { return existing }
+        let workspace = WorkspaceController()
+        workspaces[session.persistentIdentifier] = workspace
+        return workspace
+    }
+    func application(_ application: UIApplication, didDiscardSceneSessions sessions: Set<UISceneSession>) {
+        for session in sessions { workspaces.removeValue(forKey: session.persistentIdentifier)?.closeSessions() }
+    }
+}
+
+final class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+    private var workspace: WorkspaceController? { window?.rootViewController as? WorkspaceController }
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        guard let scene = scene as? UIWindowScene, let app = UIApplication.shared.delegate as? AppDelegate else { return }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = app.workspace(for: session)
         self.window = window
         window.makeKeyAndVisible()
-        return true
+        scene.title = "t3rm"
+        if let url = connectionOptions.urlContexts.first?.url { showURL(url) }
     }
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        guard let command = ShellLinks.command(for: url) else { return false }
-        workspace.confirmSSH(command)
-        return true
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        if let url = URLContexts.first?.url { showURL(url) }
     }
-    func applicationDidEnterBackground(_ app: UIApplication) { workspace.setForeground(false) }
-    func applicationWillEnterForeground(_ app: UIApplication) { workspace.setForeground(true) }
+    private func showURL(_ url: URL) {
+        if let command = ShellLinks.command(for: url) {
+            DispatchQueue.main.async { [weak self] in self?.workspace?.confirmSSH(command) }
+        }
+    }
+    func sceneDidEnterBackground(_ scene: UIScene) { workspace?.setForeground(false) }
+    func sceneWillEnterForeground(_ scene: UIScene) { workspace?.setForeground(true) }
+    func sceneDidDisconnect(_ scene: UIScene) {
+        workspace?.setForeground(false)
+        window?.rootViewController = nil
+        window = nil
+    }
 }
 
 private final class TerminalTab {
     let number: Int
     var panes: [TerminalPane] = []
+    var weights: [CGFloat] = []
     var activeIndex = 0
     var title: String
     init(number: Int) { self.number = number; title = "Shell \(number)" }
@@ -38,12 +72,11 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
     private let toolbar = UIStackView()
     private let tabStrip = UIScrollView()
     private let tabButtons = UIStackView()
-    private let panes = UIStackView()
+    private let panes = PaneDeck()
     private let root = UIStackView()
     private var tabs: [TerminalTab] = []
     private var selected = 0
     private var nextNumber = 1
-    private var historyBudget = 24 * 1024 * 1024
     private var foreground = true
     private var pickerPurpose: PickerPurpose?
     private enum PickerPurpose { case upload(TerminalPane), download(URL) }
@@ -66,8 +99,7 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         view.addSubview(root)
         root.addArrangedSubview(toolbar)
         root.addArrangedSubview(panes)
-        panes.distribution = .fillEqually
-        panes.spacing = 1
+        panes.changed = { [weak self] weights in self?.current.weights = weights }
         panes.backgroundColor = .separator
         NSLayoutConstraint.activate([
             root.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
@@ -88,13 +120,19 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         control("gearshape", label: "Settings", id: "settings", action: #selector(settings))
         let more = control("ellipsis.circle", label: "Terminal actions", id: "actions", action: nil)
         more.showsMenuAsPrimaryAction = true
-        more.menu = UIMenu(children: [
+        var actions = [
             UIAction(title: "Show Keyboard", image: UIImage(systemName: "keyboard")) { [weak self] _ in self?.current.active?.focus() },
             UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in self?.current.active?.pasteContent() },
             UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { [weak self] _ in self?.current.active?.showTranscript(search: false) },
             UIAction(title: "Close Pane", image: UIImage(systemName: "xmark"), attributes: .destructive) { [weak self] _ in self?.closePane() },
             UIAction(title: "Close Tab", image: UIImage(systemName: "xmark.square"), attributes: .destructive) { [weak self] _ in self?.closeTab() }
-        ])
+        ]
+        if UIApplication.shared.supportsMultipleScenes {
+            actions.insert(UIAction(title: "New Window", image: UIImage(systemName: "plus.rectangle.on.rectangle")) { _ in
+                UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil)
+            }, at: 0)
+        }
+        more.menu = UIMenu(children: actions)
         newTab()
     }
 
@@ -116,9 +154,9 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         let tab = TerminalTab(number: nextNumber)
         nextNumber += 1
         tab.panes.append(makePane(directory: cwd, tab: tab))
+        tab.weights = [1]
         tabs.append(tab)
         selectTab(tabs.count - 1)
-        balanceHistory()
     }
 
     private func makePane(directory: String?, tab: TerminalTab) -> TerminalPane {
@@ -134,9 +172,9 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
             tab.title = title
             self.refreshTabs()
         }
-        pane.onTranscript = { [weak self, weak pane] transcript, line, column, search in
+        pane.onTranscript = { [weak self, weak pane] transcript, search in
             guard let self = self, self.current.active === pane, self.presentedViewController == nil else { return }
-            let controller = TranscriptController(transcript, line: line, column: column, search: search)
+            let controller = TranscriptController(transcript, search: search)
             self.present(UINavigationController(rootViewController: controller), animated: true)
         }
         pane.onError = { [weak self] value in self?.alert("Terminal", value) }
@@ -151,20 +189,21 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
             guard let self = self, self.current.active === pane, self.foreground, self.presentedViewController == nil else { return }
             self.offerDownload(name: name, data: data)
         }
+        HistoryBudget.shared.add(pane)
         return pane
     }
 
     private func selectTab(_ index: Int) {
         guard tabs.indices.contains(index) else { return }
-        let keyboardWasVisible = panes.arrangedSubviews.contains { ($0 as? TerminalPane)?.input.isFirstResponder == true }
+        let keyboardWasVisible = panes.paneViews.contains { $0.input.isFirstResponder }
         selected = index
         displayPanes()
         refreshTabs()
         if keyboardWasVisible { current.active?.focus() }
     }
     private func displayPanes() {
-        for view in panes.arrangedSubviews { panes.removeArrangedSubview(view); view.removeFromSuperview() }
-        for pane in current.panes { pane.inForeground = foreground; panes.addArrangedSubview(pane) }
+        for pane in current.panes { pane.inForeground = foreground }
+        panes.display(current.panes, weights: current.weights)
         markActive()
         view.setNeedsLayout()
     }
@@ -202,22 +241,26 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
     @objc private func splitPane() {
         let tab = current
         let pane = makePane(directory: tab.active?.directory, tab: tab)
+        let half = tab.weights[tab.activeIndex] / 2
+        tab.weights[tab.activeIndex] = half
+        tab.weights.insert(half, at: tab.activeIndex + 1)
         tab.panes.insert(pane, at: tab.activeIndex + 1)
         tab.activeIndex += 1
         displayPanes()
-        balanceHistory()
     }
     @objc private func closePane() {
         if current.panes.count == 1 { closeTab(); return }
-        current.panes.remove(at: current.activeIndex).model.close()
+        let pane = current.panes.remove(at: current.activeIndex)
+        current.weights.remove(at: current.activeIndex)
+        pane.model.close()
+        HistoryBudget.shared.remove(pane)
         current.activeIndex = min(current.activeIndex, current.panes.count - 1)
         displayPanes()
-        balanceHistory()
     }
     @objc private func closeTab() {
         let removed = tabs.remove(at: selected)
-        for pane in removed.panes { pane.model.close() }
-        if tabs.isEmpty { newTab() } else { selectTab(min(selected,tabs.count-1)); balanceHistory() }
+        for pane in removed.panes { pane.model.close(); HistoryBudget.shared.remove(pane) }
+        if tabs.isEmpty { newTab() } else { selectTab(min(selected,tabs.count-1)) }
     }
 
     override func viewDidLayoutSubviews() {
@@ -227,14 +270,10 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
     }
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
-        historyBudget = min(historyBudget, 12 * 1024 * 1024)
-        for tab in tabs { for pane in tab.panes { pane.releaseCache() } }
-        balanceHistory()
+        HistoryBudget.shared.underPressure()
     }
-    private func balanceHistory() {
-        let count = tabs.reduce(0) { $0 + $1.panes.count }
-        let share = historyBudget / max(1,count)
-        for tab in tabs { for pane in tab.panes { pane.model.trim(bytes: share) } }
+    func closeSessions() {
+        for tab in tabs { for pane in tab.panes { pane.model.close(); HistoryBudget.shared.remove(pane) } }
     }
     func setForeground(_ value: Bool) {
         foreground = value

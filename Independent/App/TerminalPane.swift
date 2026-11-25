@@ -30,6 +30,8 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     private let scroll = UIScrollView()
     private let status = UILabel()
     private let mouse = MouseGesture()
+    private var trackpad: UIPanGestureRecognizer!
+    private var pointerHover: UIHoverGestureRecognizer!
     private var wheel: UIPanGestureRecognizer!
     private var touchSelection: UILongPressGestureRecognizer!
     private var tap: UITapGestureRecognizer!
@@ -47,6 +49,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     private var wheelDelta: CGFloat = 0
     private var bellGeneration = 0
     private(set) var directory: String?
+    var resizing = false { didSet { if !resizing { setNeedsLayout() } } }
     var active = false {
         didSet {
             canvas.active = active
@@ -56,7 +59,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     var inForeground = true { didSet { updateVisibility() } }
     var onActivate: (() -> Void)?
     var onTitle: ((String) -> Void)?
-    var onTranscript: ((Transcript, Int?, Int?, Bool) -> Void)?
+    var onTranscript: ((Transcript, Bool) -> Void)?
     var onUpload: (() -> Void)?
     var onDownload: ((String, Data) -> Void)?
     var onError: ((String) -> Void)?
@@ -98,6 +101,14 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
         wheel.allowedTouchTypes = []
         wheel.isEnabled = false
         canvas.addGestureRecognizer(wheel)
+        pointerHover = UIHoverGestureRecognizer(target: self, action: #selector(hover(_:)))
+        pointerHover.isEnabled = false
+        canvas.addGestureRecognizer(pointerHover)
+        trackpad = UIPanGestureRecognizer(target: self, action: #selector(moveCursor(_:)))
+        trackpad.minimumNumberOfTouches = 2
+        trackpad.maximumNumberOfTouches = 2
+        scroll.panGestureRecognizer.maximumNumberOfTouches = 1
+        scroll.addGestureRecognizer(trackpad)
         canvas.activate = { [weak self] in self?.focus() }
         input.onKey = { [weak self] key, flags in self?.send(key, flags) }
         input.onPaste = { [weak self] in self?.pasteContent() }
@@ -130,10 +141,12 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     @objc private func settingsChanged() {
         canvas.refreshAppearance()
         input.font = Preferences.font
-        let accessory = Preferences.defaults.string(forKey: "keyboardAccessoryStyle")
-        input.inputAccessoryView = accessory == "hidden" ? nil : shelf
+        trackpad.isEnabled = Preferences.defaults.integer(forKey: "keyboardTrackpadSensitivity") > 0
+        input.inputAccessoryView = shelf
+        shelf.rebuild()
         if input.isFirstResponder { input.reloadInputViews() }
         displayLink?.preferredFramesPerSecond = Preferences.frameRate
+        model.setColors(foreground: canvas.palette.foreground.terminalRGB, background: canvas.palette.background.terminalRGB)
         backgroundColor = canvas.palette.background
         force = true
         generation += 1
@@ -160,7 +173,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
         status.frame = CGRect(x: 4, y: 0, width: max(1,bounds.width-8), height: 34)
         positionInput()
         busyWithLayout = false
-        guard bounds.width > 20, bounds.height > 20 else { return }
+        guard !resizing, bounds.width > 20, bounds.height > 20 else { return }
         let newColumns = max(2, Int((bounds.width - 2 * canvas.horizontalInset)/canvas.cellSize.width))
         let newRows = max(1, Int(bounds.height / canvas.cellSize.height))
         guard columns != newColumns || rowCount != newRows else { return }
@@ -229,6 +242,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
                 let enabled = data.modes.mouseReporting
                 self.mouse.isEnabled = enabled
                 self.wheel.isEnabled = enabled
+                self.pointerHover.isEnabled = data.modes.mouseTracking == .anyMotion
                 self.scroll.panGestureRecognizer.isEnabled = !enabled
                 self.touchSelection.isEnabled = !enabled
                 self.tap.isEnabled = !enabled
@@ -298,14 +312,13 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     }
 
     @objc private func selectAt(_ recognizer: UILongPressGestureRecognizer) {
-        guard recognizer.state == .began, let frame = canvas.frameData else { return }
+        guard recognizer.state == .began, canvas.frameData != nil else { return }
         let address = canvas.address(recognizer.location(in: canvas))
-        let relativeLine = address.line - frame.first
-        showTranscript(search: false, line: relativeLine, column: address.column)
+        showTranscript(search: false, line: address.line, column: address.column)
     }
     func showTranscript(search: Bool, line: Int? = nil, column: Int? = nil) {
         onActivate?()
-        model.transcript { [weak self] transcript in self?.onTranscript?(transcript, line, column, search) }
+        model.transcript(line: line, column: column) { [weak self] transcript in self?.onTranscript?(transcript, search) }
     }
 
     private func handle(_ effect: TerminalEffect) {
@@ -315,7 +328,12 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
             if !safe.isEmpty { onTitle?(safe) }
         case .workingDirectory(let value):
             var path = value
-            if let url = URL(string: value), url.isFileURL { path = url.path }
+            if let url = URL(string: value), url.isFileURL {
+                let host = (url.host ?? "").lowercased()
+                let local = ProcessInfo.processInfo.hostName.lowercased()
+                guard host.isEmpty || host == "localhost" || host == local else { return }
+                path = url.path
+            }
             var isDirectory: ObjCBool = false
             if path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
                 directory = path
@@ -342,6 +360,25 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
         UIAccessibility.post(notification: .announcement, argument: value)
     }
 
+    @objc private func hover(_ recognizer: UIHoverGestureRecognizer) {
+        guard recognizer.state == .began || recognizer.state == .changed else { return }
+        sendMouse(point: recognizer.location(in: canvas), button: 3, release: false, motion: true, modifiers: recognizer.modifierFlags)
+    }
+    @objc private func moveCursor(_ pan: UIPanGestureRecognizer) {
+        let speed = max(0,min(3, Preferences.defaults.integer(forKey: "keyboardTrackpadSensitivity")))
+        guard speed > 0 else { return }
+        if pan.state == .began { onActivate?() }
+        let threshold: CGFloat = [0,22,13,7][speed]
+        let movement = pan.translation(in: self)
+        let horizontal = abs(movement.x) >= abs(movement.y)
+        let delta = horizontal ? movement.x : movement.y
+        let steps = min(16,Int(abs(delta) / threshold))
+        guard steps > 0 else { return }
+        let key: TerminalKey = horizontal ? (delta < 0 ? .left : .right) : (delta < 0 ? .up : .down)
+        for _ in 0..<steps { send(key, []) }
+        let remainder = delta - CGFloat(steps)*threshold*(delta < 0 ? -1 : 1)
+        pan.setTranslation(horizontal ? CGPoint(x: remainder, y: 0) : CGPoint(x: 0,y: remainder), in: self)
+    }
     @objc private func scrollWheel(_ pan: UIPanGestureRecognizer) {
         if pan.state == .began { wheelDelta = 0 }
         let diff = pan.translation(in: canvas).y
