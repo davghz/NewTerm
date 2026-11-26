@@ -1,5 +1,8 @@
 import Foundation
 import T3Gzip
+#if canImport(UniformTypeIdentifiers)
+import UniformTypeIdentifiers
+#endif
 
 public enum TransferArchive {
     public static let cancel = Data("abort\r".utf8)
@@ -17,9 +20,27 @@ public enum TransferArchive {
         }
     }
 
-    public static func upload(file: URL) throws -> Data {
-        let name = file.lastPathComponent
-        guard !name.isEmpty, name != ".", name != "..", name.utf8.count <= 100,
+    public static func matchesSuggestedName(_ suggested: String?, original: String) -> Bool {
+        guard let suggested = suggested, !suggested.isEmpty else { return false }
+        let filename = original as NSString
+        return suggested == original || (!filename.pathExtension.isEmpty && suggested == filename.deletingPathExtension)
+    }
+
+    #if canImport(UniformTypeIdentifiers)
+    public static func copiedFileRepresentation(for name: String, available: [String]) -> String? {
+        let type = UTType(filenameExtension: (name as NSString).pathExtension)
+        let offered = available.compactMap { UTType($0) }
+        let content = offered.first { candidate in
+            guard candidate.conforms(to: .data), !candidate.conforms(to: .url), !candidate.conforms(to: .directory) else { return false }
+            return type.map { candidate.conforms(to: $0) } ?? candidate.conforms(to: .content)
+        } ?? offered.first { $0 == .data }
+        return content?.identifier
+    }
+    #endif
+
+    public static func upload(file: URL, filename: String? = nil) throws -> Data {
+        let name = filename ?? file.lastPathComponent
+        guard !name.isEmpty, (name as NSString).lastPathComponent == name, name != ".", name != "..", name.utf8.count <= 100,
               !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { throw Failure.filename }
         let attributes = try file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
         guard attributes.isRegularFile == true else { throw Failure.fileType }

@@ -13,6 +13,29 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    func testCopiedFileMatchesOnlyOriginalNameOrItsDisplayStem() {
+        XCTAssertTrue(TransferArchive.matchesSuggestedName("résumé", original: "résumé.txt"))
+        XCTAssertTrue(TransferArchive.matchesSuggestedName("résumé.txt", original: "résumé.txt"))
+        XCTAssertTrue(TransferArchive.matchesSuggestedName("archive.tar", original: "archive.tar.gz"))
+        XCTAssertFalse(TransferArchive.matchesSuggestedName("archive", original: "archive.tar.gz"))
+        XCTAssertTrue(TransferArchive.matchesSuggestedName(".env", original: ".env"))
+        XCTAssertFalse(TransferArchive.matchesSuggestedName("env", original: ".env"))
+        XCTAssertFalse(TransferArchive.matchesSuggestedName("other.txt", original: "résumé.txt"))
+        XCTAssertFalse(TransferArchive.matchesSuggestedName(nil, original: "résumé.txt"))
+        XCTAssertFalse(TransferArchive.matchesSuggestedName("", original: ".env"))
+    }
+
+    #if canImport(UniformTypeIdentifiers)
+    func testCopiedFileRepresentationAcceptsRawDataAndRejectsReferences() {
+        XCTAssertEqual(TransferArchive.copiedFileRepresentation(for: "file.txt", available: ["public.data"]), "public.data")
+        XCTAssertEqual(TransferArchive.copiedFileRepresentation(for: ".env", available: ["public.data"]), "public.data")
+        XCTAssertEqual(TransferArchive.copiedFileRepresentation(for: "unknown.abcxyz", available: ["public.data"]), "public.data")
+        XCTAssertEqual(TransferArchive.copiedFileRepresentation(for: "file.txt", available: ["public.file-url", "public.utf8-plain-text"]), "public.utf8-plain-text")
+        XCTAssertNil(TransferArchive.copiedFileRepresentation(for: "file.jpeg", available: ["public.file-url", "public.url", "public.directory"]))
+        XCTAssertNil(TransferArchive.copiedFileRepresentation(for: "file.jpeg", available: ["public.item"]))
+    }
+    #endif
+
     #if os(macOS)
     func testWireReplyIsReadableBySystemTar() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -36,8 +59,27 @@ final class IntegrationTests: XCTestCase {
         task.waitUntilExit()
         XCTAssertEqual(task.terminationStatus, 0)
         XCTAssertEqual(decoded, content)
+        let displayName = "original ü.txt"
+        let copied = try TransferArchive.upload(file: member, filename: displayName)
+        let renamed = try XCTUnwrap(Data(base64Encoded: copied.dropFirst(3).dropLast(2), options: .ignoreUnknownCharacters))
+        try renamed.write(to: file)
+        let checkName = Process(), names = Pipe()
+        checkName.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        checkName.arguments = ["-tzf", file.path]
+        checkName.standardOutput = names
+        try checkName.run()
+        let listing = names.fileHandleForReading.readDataToEndOfFile()
+        checkName.waitUntilExit()
+        XCTAssertEqual(checkName.terminationStatus, 0)
+        XCTAssertEqual(String(decoding: listing, as: UTF8.self), displayName + "\n")
+        for invalid in ["", ".", "..", "../escape", "dir/file", "a/b.txt", "a\nb.txt"] {
+            XCTAssertThrowsError(try TransferArchive.upload(file: member, filename: invalid))
+        }
+        try Data(count: TransferArchive.byteLimit).write(to: member)
+        XCTAssertNoThrow(try TransferArchive.upload(file: member, filename: displayName))
         try Data(count: TransferArchive.byteLimit + 1).write(to: member)
         XCTAssertThrowsError(try TransferArchive.upload(file: member))
+        XCTAssertThrowsError(try TransferArchive.upload(file: member, filename: displayName))
     }
     #endif
 }

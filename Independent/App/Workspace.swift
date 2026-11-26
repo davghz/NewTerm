@@ -356,12 +356,50 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in pane.model.send { _ in TransferArchive.cancel } })
         alert.addAction(UIAlertAction(title: "Choose File", style: .default) { [weak self] _ in
             guard let self = self else { return }
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: false)
             self.pickerPurpose = .upload(pane)
             picker.delegate = self
             self.present(picker, animated: true)
         })
         present(alert, animated: true)
+    }
+
+    private func retryUpload(_ pane: TerminalPane, file: String, after previous: UIViewController, message: String? = nil) {
+        let presentRetry = { [weak self] in
+            guard let self = self, self.current.active === pane, self.presentedViewController == nil else {
+                pane.model.send { _ in TransferArchive.cancel }
+                return
+            }
+            let instructions = "In Files, touch and hold “\(file)”, choose Copy, then return here."
+            let retry = UIAlertController(title: "Upload from Files",
+                                          message: [message, instructions].compactMap { $0 }.joined(separator: "\n\n"),
+                                          preferredStyle: .alert)
+            retry.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in pane.model.send { _ in TransferArchive.cancel } })
+            retry.addAction(UIAlertAction(title: "Paste Copied File", style: .default) { [weak self, weak retry] _ in
+                guard let self = self, let retry = retry else { pane.model.send { _ in TransferArchive.cancel }; return }
+                CopiedFileUpload.read(named: file) { result in
+                    switch result {
+                    case .success(let response): pane.model.send { _ in response }
+                    case .failure(let error):
+                        DispatchQueue.main.async { self.retryUpload(pane, file: file, after: retry, message: error.localizedDescription) }
+                    }
+                }
+            })
+            self.present(retry, animated: true)
+        }
+        if previous.isBeingDismissed, let transition = previous.transitionCoordinator {
+            transition.animate(alongsideTransition: nil) { _ in presentRetry() }
+        } else if presentedViewController === previous {
+            previous.dismiss(animated: true, completion: presentRetry)
+        } else {
+            presentRetry()
+        }
+    }
+
+    private static func isFilePermissionError(_ error: NSError) -> Bool {
+        if error.domain == NSCocoaErrorDomain && [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(error.code) { return true }
+        if error.domain == NSPOSIXErrorDomain && [Int(EACCES), Int(EPERM)].contains(error.code) { return true }
+        return (error.userInfo[NSUnderlyingErrorKey] as? NSError).map(isFilePermissionError) ?? false
     }
 
     private func offerDownload(name: String, data: Data) {
@@ -399,15 +437,30 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         defer { pickerPurpose = nil }
         switch pickerPurpose {
         case .upload(let pane):
-            guard let importedCopy = urls.first else { pane.model.send { _ in TransferArchive.cancel }; return }
+            guard let source = urls.first else { pane.model.send { _ in TransferArchive.cancel }; return }
+            let scoped = source.startAccessingSecurityScopedResource()
             DispatchQueue.global(qos: .userInitiated).async {
-                defer { try? FileManager.default.removeItem(at: importedCopy) }
+                defer { if scoped { source.stopAccessingSecurityScopedResource() } }
                 do {
-                    let response = try TransferArchive.upload(file: importedCopy)
+                    var coordinationError: NSError?
+                    var result: Result<Data, Error>?
+                    NSFileCoordinator().coordinate(readingItemAt: source, options: .withoutChanges, error: &coordinationError) { url in
+                        result = Result { try TransferArchive.upload(file: url) }
+                    }
+                    if let error = coordinationError { throw error }
+                    guard let result = result else { throw CocoaError(.fileReadUnknown) }
+                    let response = try result.get()
                     pane.model.send { _ in response }
                 } catch {
-                    pane.model.send { _ in TransferArchive.cancel }
-                    DispatchQueue.main.async { [weak self] in self?.alert("Upload", error.localizedDescription) }
+                    if Self.isFilePermissionError(error as NSError) {
+                        DispatchQueue.main.async {
+                            self.retryUpload(pane, file: source.lastPathComponent, after: controller,
+                                             message: "The file provider denied access to the selected document.")
+                        }
+                    } else {
+                        pane.model.send { _ in TransferArchive.cancel }
+                        DispatchQueue.main.async { [weak self] in self?.alert("Upload", error.localizedDescription) }
+                    }
                 }
             }
         case .download(let directory): try? FileManager.default.removeItem(at: directory)
