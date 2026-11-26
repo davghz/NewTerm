@@ -90,7 +90,7 @@ final class TerminalModel {
                     switch effect {
                     case .reply(let response): session.write(response)
                     case .title(let value): title = value
-                    case .copyText(let value): copiedText = value
+                    case .copyText(let value): if copiedText == nil { copiedText = value }
                     case .workingDirectory(let path): directory = path
                     case .bell: bell = true
                     case .uploadRequest:
@@ -100,7 +100,7 @@ final class TerminalModel {
                 }
                 effectLock.lock()
                 if let title = title { pendingTitle = title }
-                if let value = copiedText { pendingCopy = value }
+                if pendingCopy == nil { pendingCopy = copiedText }
                 if let directory = directory { pendingDirectory = directory }
                 pendingBell = pendingBell || bell
                 if pendingTransfer == nil { pendingTransfer = transfer }

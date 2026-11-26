@@ -414,6 +414,30 @@ final class InteractionTests: XCTestCase {
                         "Expected wheel ticks in each direction, followed by a held selection drag. Received \(output)")
     }
 
+    func testMouseSelectionCopiesTerminalTextForPaste() {
+        terminal.tap()
+        // A terminal application waits for the SGR mouse release, then uses OSC 52 to copy.
+        let sample = "copied-界-selection"
+        let payload = Data(sample.utf8).base64EncodedString()
+        command([
+            #"stty -echo -icanon; printf '\033[?1002h\033[?1006hselect-%s\n' ready"#,
+            #"while [ "$(dd bs=1 count=1 2>/dev/null)" != m ]; do :; done"#,
+            #"printf '\033[?1002l\033[?1006l\033]52;c;%s\007' '"# + payload + "'",
+            #"stty icanon; printf 'paste-%s\n' ready; IFS= read -r pasted; stty echo"#,
+            #"printf 'received-%s\n' "$pasted""#
+        ].joined(separator: "; "))
+        XCTAssertTrue(screenContains("select-ready"))
+        let start = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.4))
+        let end = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.4))
+        start.press(forDuration: 1.15, thenDragTo: end)
+        XCTAssertTrue(screenContains("paste-ready"))
+        app.buttons["t3rm.actions"].tap()
+        let paste = app.buttons.matching(NSPredicate(format: "label == 'Paste' AND identifier != 't3rm.keyShelf.paste'")).firstMatch
+        paste.tap()
+        app.typeText("\n")
+        XCTAssertTrue(screenContains("received-" + sample))
+    }
+
     func testShellTransferPromptsAndUploadCancellation() {
         terminal.tap()
         command("printf '\\033]1337;RequestUpload=format=tgz\\007'; IFS= read -r reply; printf 'upload-%s\\n' \"$reply\"")

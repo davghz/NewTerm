@@ -163,7 +163,6 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     private var ended = false
     private var started = false
     private var wheelDelta: CGFloat = 0
-    private var selectionMoved = false
     private var copyDeadline: TimeInterval = -.infinity
     private var bellGeneration = 0
     private(set) var directory: String?
@@ -172,7 +171,6 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         didSet {
             canvas.active = active
             if !active {
-                selectionMoved = false
                 copyDeadline = -.infinity
                 input.resignFirstResponder()
             }
@@ -219,6 +217,12 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
             return root.keyboardLayoutGuide.layoutFrame.minY >= root.safeAreaLayoutGuide.layoutFrame.maxY - 1
         }
         mouse.focusOnTap = { [weak self] in self?.focus() }
+        mouse.selectionEnded = { [weak self] start, end in
+            guard let self = self, self.active, self.visible,
+                  self.canvas.address(start) != self.canvas.address(end) else { return }
+            // Codex sends OSC 52 after releasing a text selection.
+            self.copyDeadline = ProcessInfo.processInfo.systemUptime + 2
+        }
         mouse.keyboardTopInWindow = { [weak self] in
             guard let self = self, self.input.isFirstResponder,
                   let window = self.window, let root = window.rootViewController?.view else { return nil }
@@ -612,17 +616,6 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     }
     private func sendMouse(point: CGPoint, button: Int, release: Bool, motion: Bool, modifiers: UIKeyModifierFlags) {
         guard let frame = canvas.frameData else { return }
-        if button == 0 {
-            // Codex writes the selected text using OSC 52 immediately after the release.
-            // Give one deliberate primary-button drag one opportunity to update the clipboard.
-            if release {
-                if selectionMoved { copyDeadline = ProcessInfo.processInfo.systemUptime + 2 }
-                selectionMoved = false
-            } else {
-                selectionMoved = motion
-                if !motion { copyDeadline = -.infinity }
-            }
-        }
         let addr = canvas.address(point)
         let x = min(columns, max(1, addr.column + 1))
         let y = min(rowCount, max(1, addr.line - frame.first - frame.history + 1))
