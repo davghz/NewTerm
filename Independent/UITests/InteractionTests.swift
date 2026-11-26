@@ -203,12 +203,18 @@ final class InteractionTests: XCTestCase {
 
     func testSwipeAccessoryKeysFromAButton() {
         terminal.tap()
+        command("printf 'waiting-%s\\n' F12; IFS= read -r key; [ \"$key\" = \"$(printf '\\033[24~')\" ] && printf 'received-%s\\n' F12")
+        XCTAssertTrue(screenContains("waiting-F12"))
         let shelf = app.scrollViews["t3rm.keyShelf"]
         XCTAssertTrue(shelf.waitForExistence(timeout: 5))
+        let pixel = 1 / UIScreen.main.scale
+        func fullyVisible(_ button: XCUIElement) -> Bool {
+            guard button.exists && button.isHittable else { return false }
+            return shelf.frame.insetBy(dx: -pixel, dy: -pixel).contains(button.frame)
+        }
         if UIDevice.current.userInterfaceIdiom == .phone && app.frame.width >= 375 {
             for label in ["Up arrow", "Down arrow", "Left arrow", "Right arrow"] {
-                let arrow = shelf.buttons[label]
-                XCTAssertTrue(arrow.isHittable && shelf.frame.contains(arrow.frame), label)
+                XCTAssertTrue(fullyVisible(shelf.buttons[label]), label)
             }
         }
         let left = shelf.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
@@ -216,7 +222,7 @@ final class InteractionTests: XCTestCase {
         func reveal(_ label: String, swipeLeft: Bool) {
             let button = shelf.buttons[label]
             for _ in 0..<7 {
-                if button.exists && shelf.frame.contains(button.frame) && button.isHittable { return }
+                if fullyVisible(button) { return }
                 let start = swipeLeft ? right : left
                 start.press(forDuration: 0.1, thenDragTo: swipeLeft ? left : right)
             }
@@ -231,6 +237,9 @@ final class InteractionTests: XCTestCase {
         let function = shelf.buttons["Function keys"]
         function.tap()
         reveal("F12", swipeLeft: true)
+        shelf.buttons["F12"].tap()
+        app.typeText("\n")
+        XCTAssertTrue(screenContains("received-F12"))
         reveal("More keys", swipeLeft: false)
         shelf.buttons["More keys"].tap()
         reveal("t3rm.keyShelf.paste", swipeLeft: true)
