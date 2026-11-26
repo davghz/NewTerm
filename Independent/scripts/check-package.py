@@ -46,7 +46,8 @@ with tempfile.TemporaryDirectory() as scratch:
     require((app / "Assets.car").is_file() and (app / "RIGHTS.txt").is_file(), "Artwork or rights notice missing")
     require(all("newterm" not in p.name.lower() for p in root.rglob("*")), "Legacy file in independent package")
     require((app / "ShellStartup" / ".zshenv").is_file(), "Missing app-scoped zsh startup")
-    require(all((app / name).stat().st_mode & 0o111 for name in ["t3rm","T3ShellLauncher"]), "Non-executable package payload")
+    for name in ["t3rm", "T3ShellLauncher"]:
+        require((app / name).stat().st_mode & 0o005 == 0o005, f"Mobile user cannot read and execute {name}")
     entitlements = plistlib.loads(subprocess.check_output(["ldid", "-e", str(app / "t3rm")]))
     require(entitlements == {"com.apple.private.security.no-container": True}, "Unexpected app entitlements")
 print(f"{bundle} {digest} verified")

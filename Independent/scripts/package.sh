@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+umask 022
 cd "$(dirname "$0")/.."
 variant=${1:-review}
 output=${2:-"$PWD/../packages"}
@@ -24,6 +25,8 @@ if [[ "$variant" == production ]]; then app="$temp/deb/var/jb/Applications/t3rm.
 ditto "$derived/Build/Products/Release-iphoneos/t3rm.app" "$app"
 ldid -S "$app/T3ShellLauncher"
 ldid -S"packaging/terminal.entitlements" "$app/t3rm"
+# Xcode can reuse products from a build with a restrictive umask.
+chmod -R a+rX "$app"
 version=0.2.0~alpha2
 cat > "$temp/deb/DEBIAN/control" <<EOF
 Package: $identifier
