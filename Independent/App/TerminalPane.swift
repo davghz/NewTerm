@@ -2,6 +2,8 @@ import UIKit
 import AudioToolbox
 import T3Engine
 
+private let selectionHoldDuration: TimeInterval = 1
+
 private func crossesKeyboard(top: CGFloat, fingerY: CGFloat, dx: CGFloat, dy: CGFloat) -> Bool {
     fingerY >= top + 16 && dy >= 32 && dy > abs(dx)
 }
@@ -10,6 +12,7 @@ private final class MouseGesture: UIGestureRecognizer {
     var report: ((CGPoint, Int, Bool, Bool, UIKeyModifierFlags) -> Void)?
     // Returns the distance consumed by whole wheel ticks.
     var scroll: ((CGPoint, CGFloat, UIKeyModifierFlags) -> CGFloat)?
+    var selectionEnded: ((CGPoint, CGPoint) -> Void)?
     var shouldFocusOnTap: (() -> Bool)?
     var focusOnTap: (() -> Void)?
     var keyboardTopInWindow: (() -> CGFloat?)?
@@ -49,7 +52,7 @@ private final class MouseGesture: UIGestureRecognizer {
             focusTap = shouldFocusOnTap?() == true
             let work = DispatchWorkItem { [weak self] in self?.beginPress() }
             hold = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + selectionHoldDuration, execute: work)
         } else {
             beginPress()
         }
@@ -101,7 +104,9 @@ private final class MouseGesture: UIGestureRecognizer {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let touch = contact, touches.contains(touch) else { return }
         hold?.cancel()
-        if mode != .pressed {
+        if mode == .pressed {
+            if button == 0 { selectionEnded?(pressOrigin, touch.location(in: view)) }
+        } else {
             updateDrag(touch, flags: event.modifierFlags, ending: true)
             if mode == .pending {
                 if focusTap { focusOnTap?() } else { beginPress() }
@@ -200,6 +205,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         tap.delegate = self
         scroll.addGestureRecognizer(tap)
         touchSelection = UILongPressGestureRecognizer(target: self, action: #selector(selectAt(_:)))
+        touchSelection.minimumPressDuration = selectionHoldDuration
         scroll.addGestureRecognizer(touchSelection)
         tap.require(toFail: touchSelection)
         mouse.shouldFocusOnTap = { [weak self] in

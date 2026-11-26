@@ -275,6 +275,19 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(screenContains("pull-clean"), "The waiting shell must receive only the text typed after reopening the keyboard")
     }
 
+    func testShellRequiresAHoldToSelectText() {
+        terminal.tap()
+        command("printf 'hold-%s\\n' selection")
+        XCTAssertTrue(screenContains("hold-selection"))
+        let selection = app.navigationBars["Select Text"]
+        let point = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.1))
+        point.press(forDuration: 0.6)
+        XCTAssertFalse(selection.exists)
+        point.press(forDuration: 1.2)
+        XCTAssertTrue(selection.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textViews["Terminal transcript"].exists)
+    }
+
     func testSingleTapReopensKeyboardAfterScrollingHistory() throws {
         terminal.tap()
         let keyboard = app.keyboards.firstMatch
