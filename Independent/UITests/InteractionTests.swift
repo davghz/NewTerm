@@ -186,7 +186,10 @@ final class InteractionTests: XCTestCase {
         XCTAssertFalse(right.exists && right.isHittable)
         app.buttons["Done"].tap()
         XCTAssertTrue(active.isSelected)
-        XCTAssertTrue(right.isHittable)
+        let shelfReturned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            right.exists && right.isHittable
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [shelfReturned], timeout: 5), .completed)
         command("printf '%s%s\\n' focus- restored")
         XCTAssertTrue(screenContains("focus-restored"))
         attachScreen("Alternate terminal theme")
