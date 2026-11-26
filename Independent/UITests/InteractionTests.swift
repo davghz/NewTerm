@@ -181,9 +181,14 @@ final class InteractionTests: XCTestCase {
         app.staticTexts["Color Theme"].tap()
         app.staticTexts[other].tap()
         XCTAssertTrue(screenContains(other, in: preview))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertFalse(keyboard.exists && keyboard.isHittable)
+        XCTAssertFalse(right.exists && right.isHittable)
         app.buttons["Done"].tap()
         XCTAssertTrue(active.isSelected)
-        XCTAssertTrue(screenContains("Darwin"))
+        XCTAssertTrue(right.isHittable)
+        command("printf '%s%s\\n' focus- restored")
+        XCTAssertTrue(screenContains("focus-restored"))
         attachScreen("Alternate terminal theme")
 
         openSettings()

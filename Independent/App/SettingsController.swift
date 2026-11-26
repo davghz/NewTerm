@@ -3,7 +3,9 @@ import UniformTypeIdentifiers
 import CoreText
 import T3Engine
 
-final class SettingsController: UITableViewController, UIDocumentPickerDelegate {
+final class SettingsController: UITableViewController, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
+    var onDismiss: (() -> Void)?
+
     private enum Row {
         case preview, font, size, theme, locale, shelf, arrows, trackpad, bellHUD, vibrate, sound, chargingRate, batteryRate, lowPower, about
         var title: String {
@@ -71,7 +73,8 @@ final class SettingsController: UITableViewController, UIDocumentPickerDelegate 
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(done))
     }
     override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); tableView.reloadData() }
-    @objc private func done() { dismiss(animated: true) }
+    @objc private func done() { dismiss(animated: true, completion: onDismiss) }
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { onDismiss?() }
 
     override func numberOfSections(in tableView: UITableView) -> Int { sections.count }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? { sections[section].0 }

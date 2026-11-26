@@ -290,7 +290,16 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
     @objc private func search() { current.active?.showTranscript(search: true) }
     @objc private func settings() {
         guard presentedViewController == nil else { return }
-        presentPanel(SettingsController(style: .insetGrouped))
+        let controller = SettingsController(style: .insetGrouped)
+        if let pane = current.active, pane.input.isFirstResponder {
+            pane.input.resignFirstResponder()
+            controller.onDismiss = { [weak pane] in
+                guard let pane = pane, pane.active, pane.window?.isKeyWindow == true else { return }
+                pane.focus()
+            }
+        }
+        presentPanel(controller)
+        presentedViewController?.presentationController?.delegate = controller
     }
 
     private func presentPanel(_ controller: UIViewController) {
