@@ -275,6 +275,42 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(screenContains("pull-clean"), "The waiting shell must receive only the text typed after reopening the keyboard")
     }
 
+    func testSingleTapReopensKeyboardAfterScrollingHistory() throws {
+        terminal.tap()
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        command("for i in {1..160}; do echo row-$i; done; printf 'scroll-%s\\n' ready; IFS= read -r line; [ \"$line\" = ok ] && printf 'scroll-%s\\n' clean")
+        XCTAssertTrue(screenContains("scroll-ready"))
+
+        func firstVisibleRow() -> Int? {
+            let text = terminal.value as? String ?? ""
+            return text.split(separator: "\n").first(where: { $0.hasPrefix("row-") }).flatMap { Int($0.dropFirst(4)) }
+        }
+        let originalRow = try XCTUnwrap(firstVisibleRow())
+        let start = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.24))
+        let end = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
+        start.press(forDuration: 0.08, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.1)
+        let scrolled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            firstVisibleRow().map { $0 < originalRow } ?? false
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [scrolled], timeout: 5), .completed)
+        XCTAssertTrue(keyboard.exists)
+
+        let initialHeight = terminal.frame.height
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        let key = shelf.buttons["Escape"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        key.press(forDuration: 0.05, thenDragTo: key.withOffset(CGVector(dx: 0, dy: 150)))
+        let expanded = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+            !keyboard.exists && !shelf.exists && terminal.frame.height > initialHeight + 40
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [expanded], timeout: 5), .completed)
+
+        terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.25)).tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "One tap on scrollback should reopen the keyboard")
+        app.typeText("ok\n")
+        XCTAssertTrue(screenContains("scroll-clean"))
+    }
+
     func testShellTransferPromptsAndUploadCancellation() {
         terminal.tap()
         command("printf '\\033]1337;RequestUpload=format=tgz\\007'; IFS= read -r reply; printf 'upload-%s\\n' \"$reply\"")
