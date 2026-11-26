@@ -2,10 +2,16 @@ import UIKit
 import AudioToolbox
 import T3Engine
 
+private func crossesKeyboard(top: CGFloat, fingerY: CGFloat, dx: CGFloat, dy: CGFloat) -> Bool {
+    fingerY >= top + 16 && dy >= 32 && dy > abs(dx)
+}
+
 private final class MouseGesture: UIGestureRecognizer {
     var report: ((CGPoint, Int, Bool, Bool, UIKeyModifierFlags) -> Void)?
     var shouldFocusOnTap: (() -> Bool)?
     var focusOnTap: (() -> Void)?
+    var keyboardTopInWindow: (() -> CGFloat?)?
+    var dismissKeyboard: (() -> Void)?
     private var contact: UITouch?
     private var button = 0
     private var pressOrigin = CGPoint.zero
@@ -13,9 +19,12 @@ private final class MouseGesture: UIGestureRecognizer {
     private var pressFlags: UIKeyModifierFlags = []
     private var sentPress = false
     private var hold: DispatchWorkItem?
+    private var keyboardTop: CGFloat?
+    private var pendingMotion: [(point: CGPoint, flags: UIKeyModifierFlags)] = []
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         if contact != nil {
+            if keyboardTop != nil { sendPress() }
             for touch in touches { ignore(touch, for: event) }
             return
         }
@@ -26,8 +35,11 @@ private final class MouseGesture: UIGestureRecognizer {
         startInWindow = touch.location(in: nil)
         pressFlags = event.modifierFlags
         state = .began
-        if touch.type == .direct && shouldFocusOnTap?() == true {
-            // Give a short, stationary finger tap to the keyboard. A hold or drag still goes to the application.
+        if touch.type == .direct, let top = keyboardTopInWindow?(), startInWindow.y < top {
+            keyboardTop = top
+        }
+        if touch.type == .direct && (keyboardTop != nil || shouldFocusOnTap?() == true) {
+            // Holding before dragging gives the application live mouse input in any direction.
             let work = DispatchWorkItem { [weak self] in self?.sendPress() }
             hold = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
@@ -40,17 +52,30 @@ private final class MouseGesture: UIGestureRecognizer {
         guard !sentPress, contact != nil else { return }
         hold?.cancel()
         hold = nil
+        keyboardTop = nil
         sentPress = true
         report?(pressOrigin, button, false, false, pressFlags)
-    }
-
-    private func movedFromStart(_ touch: UITouch) -> Bool {
-        let position = touch.location(in: nil)
-        return hypot(position.x - startInWindow.x, position.y - startInWindow.y) >= 10
+        for motion in pendingMotion {
+            report?(motion.point, button, false, true, motion.flags)
+        }
+        pendingMotion.removeAll()
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard let touch = contact, touches.contains(touch), sentPress || movedFromStart(touch) else { return }
+        guard let touch = contact, touches.contains(touch) else { return }
+        let position = touch.location(in: nil)
+        let dx = position.x - startInWindow.x
+        let dy = position.y - startInWindow.y
+        guard sentPress || !pendingMotion.isEmpty || hypot(dx, dy) >= 10 else { return }
+        if keyboardTop != nil, dy > abs(dx) {
+            // A downward drag may still cross onto the keyboard. Keep its full mouse path
+            // for applications that use drags ending inside the terminal to select text.
+            hold?.cancel()
+            hold = nil
+            pendingMotion.append((touch.location(in: view), event.modifierFlags))
+            state = .changed
+            return
+        }
         sendPress()
         report?(touch.location(in: view), button, false, true, event.modifierFlags)
         state = .changed
@@ -58,11 +83,16 @@ private final class MouseGesture: UIGestureRecognizer {
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let touch = contact, touches.contains(touch) else { return }
-        if sentPress || movedFromStart(touch) {
+        hold?.cancel()
+        let position = touch.location(in: nil)
+        let dx = position.x - startInWindow.x
+        let dy = position.y - startInWindow.y
+        if let top = keyboardTop, crossesKeyboard(top: top, fingerY: position.y, dx: dx, dy: dy) {
+            dismissKeyboard?()
+        } else if sentPress || keyboardTop != nil || hypot(dx, dy) >= 10 {
             sendPress()
             report?(touch.location(in: view), button, true, false, event.modifierFlags)
         } else {
-            hold?.cancel()
             focusOnTap?()
         }
         state = .ended
@@ -80,6 +110,8 @@ private final class MouseGesture: UIGestureRecognizer {
         hold = nil
         contact = nil
         sentPress = false
+        keyboardTop = nil
+        pendingMotion.removeAll()
         super.reset()
     }
 }
@@ -162,6 +194,14 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
             return root.keyboardLayoutGuide.layoutFrame.minY >= root.safeAreaLayoutGuide.layoutFrame.maxY - 1
         }
         mouse.focusOnTap = { [weak self] in self?.focus() }
+        mouse.keyboardTopInWindow = { [weak self] in
+            guard let self = self, self.input.isFirstResponder,
+                  let window = self.window, let root = window.rootViewController?.view else { return nil }
+            let top = root.keyboardLayoutGuide.layoutFrame.minY
+            guard top < root.safeAreaLayoutGuide.layoutFrame.maxY - 1 else { return nil }
+            return root.convert(CGPoint(x: 0, y: top), to: window).y
+        }
+        mouse.dismissKeyboard = { [weak self] in self?.input.resignFirstResponder() }
         mouse.report = { [weak self] point, button, release, motion, modifiers in
             guard let self = self else { return }
             self.onActivate?()
@@ -383,7 +423,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
               let root = window?.rootViewController?.view else { return }
         let finger = pan.location(in: root)
         let delta = pan.translation(in: root)
-        if finger.y >= top + 16, delta.y >= 32, delta.y > abs(delta.x) {
+        if crossesKeyboard(top: top, fingerY: finger.y, dx: delta.x, dy: delta.y) {
             input.resignFirstResponder()
         }
     }
