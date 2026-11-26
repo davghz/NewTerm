@@ -311,6 +311,44 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(screenContains("scroll-clean"))
     }
 
+    func testTapRestoresKeyboardWithoutClickingMouseReportingTerminal() throws {
+        terminal.tap()
+        let keyboard = app.keyboards.firstMatch
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        // Mode 1000 reports button presses and releases. SGR mode gives each coordinate in decimal.
+        command(#"stty -echo; printf '\033[?1000h\033[?1006hmouse-%s\n' ready; IFS= read -r wire; printf '\033[?1000l\033[?1006l'; stty echo; printf 'wire-%s\n' begin; printf %s "$wire" | tr '\033' '\n'; printf '\nwire-%s\n' end"#)
+        XCTAssertTrue(screenContains("mouse-ready"))
+
+        let initialHeight = terminal.frame.height
+        let start = shelf.buttons["Escape"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 150)))
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+            !keyboard.exists && !shelf.exists && terminal.frame.height > initialHeight + 40
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+
+        let dragStart = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.3))
+        let dragEnd = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.67, dy: 0.55))
+        dragStart.press(forDuration: 0.05, thenDragTo: dragEnd)
+        XCTAssertFalse(keyboard.exists, "Dragging in the terminal should still reach the program")
+
+        terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.64, dy: 0.4)).tap()
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+            keyboard.exists && shelf.exists && abs(terminal.frame.height - initialHeight) < 2
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 5), .completed, "One tap should restore the keyboard")
+        app.typeText("x")
+        terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)).tap()
+        app.typeText("\n")
+        XCTAssertTrue(screenContains("wire-end"))
+
+        // Each ESC starts a new line. Expect one drag, the typed x, then a click at one position.
+        let output = try XCTUnwrap(terminal.value as? String)
+        let packets = #"wire-begin\s+\[<0;\d+;\d+M\s+\[<0;\d+;\d+mx\s+\[<0;(\d+);(\d+)M\s+\[<0;\1;\2m\s+wire-end"#
+        XCTAssertNotNil(output.range(of: packets, options: .regularExpression), "Unexpected terminal input: \(output)")
+    }
+
     func testShellTransferPromptsAndUploadCancellation() {
         terminal.tap()
         command("printf '\\033]1337;RequestUpload=format=tgz\\007'; IFS= read -r reply; printf 'upload-%s\\n' \"$reply\"")
