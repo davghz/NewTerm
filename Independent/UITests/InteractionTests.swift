@@ -257,7 +257,8 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(escape.isHittable)
         func pullDown(from start: XCUICoordinate, line: UInt = #line) {
             let initialHeight = terminal.frame.height
-            let end = start.withOffset(CGVector(dx: 0, dy: keyboard.frame.maxY - 16 - start.screenPoint.y))
+            let distance = min(150, keyboard.frame.maxY - 8 - start.screenPoint.y)
+            let end = start.withOffset(CGVector(dx: 0, dy: distance))
             start.press(forDuration: 0.05, thenDragTo: end)
             let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
                 !keyboard.exists && !shelf.exists && terminal.frame.height > initialHeight + 40
