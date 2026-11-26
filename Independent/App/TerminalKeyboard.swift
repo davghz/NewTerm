@@ -213,6 +213,7 @@ final class KeyShelf: UIInputView {
     private let controls = UIStackView()
     private let keys = UIStackView()
     private let scroll = KeyShelfScrollView()
+    private let dismissPan = UIPanGestureRecognizer()
     private let separator = UIView()
     private let edge = UIView()
     private var chrome = TerminalChrome.current
@@ -235,6 +236,11 @@ final class KeyShelf: UIInputView {
         scroll.isDirectionalLockEnabled = true
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.showsVerticalScrollIndicator = false
+        dismissPan.addTarget(self, action: #selector(pullDown(_:)))
+        dismissPan.maximumNumberOfTouches = 1
+        dismissPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        addGestureRecognizer(dismissPan)
+        scroll.panGestureRecognizer.require(toFail: dismissPan)
         let pixel = 1 / UIScreen.main.scale
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
@@ -262,6 +268,17 @@ final class KeyShelf: UIInputView {
         rebuild()
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === dismissPan else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        let movement = dismissPan.translation(in: self)
+        return movement.y > abs(movement.x)
+    }
+
+    @objc private func pullDown(_ pan: UIPanGestureRecognizer) {
+        let movement = pan.translation(in: self)
+        if pan.state == .ended, movement.y >= 32, movement.y > abs(movement.x) { dismissAction?() }
+    }
 
     func consume() -> UIKeyModifierFlags {
         let value = modifiers

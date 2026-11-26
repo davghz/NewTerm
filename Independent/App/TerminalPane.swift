@@ -72,6 +72,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
         clipsToBounds = true
         scroll.delegate = self
         scroll.contentInsetAdjustmentBehavior = .never
+        scroll.keyboardDismissMode = .interactive
         scroll.alwaysBounceVertical = false
         scroll.bounces = false
         scroll.scrollsToTop = false
