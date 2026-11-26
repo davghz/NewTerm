@@ -245,6 +245,35 @@ final class InteractionTests: XCTestCase {
         reveal("t3rm.keyShelf.paste", swipeLeft: true)
     }
 
+    func testPullDownFromAccessoryAndTerminalDismissesKeyboardWithoutTyping() {
+        terminal.tap()
+        command("printf 'pull-%s\\n' ready; IFS= read -r line; [ \"$line\" = ok ] && printf 'pull-%s\\n' clean")
+        XCTAssertTrue(screenContains("pull-ready"))
+
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        let keyboard = app.keyboards.firstMatch
+        let escape = shelf.buttons["Escape"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        XCTAssertTrue(escape.isHittable)
+        func pullDown(from start: XCUICoordinate, line: UInt = #line) {
+            let initialHeight = terminal.frame.height
+            let end = start.withOffset(CGVector(dx: 0, dy: keyboard.frame.maxY - 16 - start.screenPoint.y))
+            start.press(forDuration: 0.05, thenDragTo: end)
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+                !keyboard.exists && !shelf.exists && terminal.frame.height > initialHeight + 40
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed, "Pulling down should uncover the terminal", line: line)
+            terminal.tap()
+            XCTAssertTrue(escape.waitForExistence(timeout: 5))
+            XCTAssertTrue(keyboard.exists)
+        }
+        pullDown(from: escape.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        let terminalBottom = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1))
+        pullDown(from: terminalBottom.withOffset(CGVector(dx: 0, dy: -15)))
+        app.typeText("ok\n")
+        XCTAssertTrue(screenContains("pull-clean"), "The waiting shell must receive only the text typed after reopening the keyboard")
+    }
+
     func testShellTransferPromptsAndUploadCancellation() {
         terminal.tap()
         command("printf '\\033]1337;RequestUpload=format=tgz\\007'; IFS= read -r reply; printf 'upload-%s\\n' \"$reply\"")
