@@ -140,6 +140,10 @@ final class TerminalModel {
 
     func foregroundCommandIs(_ name: String) -> Bool { session.foregroundCommandIs(name) }
 
+    var hasNonblankBeforeCursor: Bool {
+        queue.sync { engine.hasNonblankBeforeCursor }
+    }
+
     func resize(columns: Int, rows: Int) {
         queue.async { [self] in
             guard !closed, columns != engine.columns || rows != engine.rows else { return }

@@ -47,6 +47,180 @@ final class KeyboardTests: XCTestCase {
         XCTAssertTrue(input.text.isEmpty)
     }
 
+    private func recordBytes(from input: TerminalInput) -> () -> Data {
+        let modes = TerminalEngine(columns: 12, rows: 2).modes
+        var bytes = Data()
+        input.onKey = { key, modifiers in bytes.append(key.bytes(modes: modes, modifiers: modifiers)) }
+        return { bytes }
+    }
+
+    private func waitForKeyboardCallbacks() {
+        let nextTurn = expectation(description: "Deferred keyboard input delivered")
+        DispatchQueue.main.async { nextTurn.fulfill() }
+        wait(for: [nextTurn], timeout: 2)
+    }
+
+    private func keyboardBytes(_ perform: (TerminalInput) -> Void) -> Data {
+        let input = TerminalInput()
+        let received = recordBytes(from: input)
+        perform(input)
+        waitForKeyboardCallbacks()
+        XCTAssertTrue(input.text.isEmpty)
+        return received()
+    }
+
+    private func replaceHypothesis(in input: TerminalInput, with hypothesis: String) {
+        guard let range = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument) else {
+            return XCTFail("Expected a valid dictation replacement range")
+        }
+        input.replace(range, withText: hypothesis)
+        input.delegate?.textViewDidChange?(input)
+    }
+
+    func testLiveDictationRevisionsStayEditableUntilTheFinalResult() {
+        for usePhraseResult in [false, true] {
+            let input = TerminalInput()
+            let received = recordBytes(from: input)
+            for hypothesis in ["H", "Hello there", "Hello"] {
+                replaceHypothesis(in: input, with: hypothesis)
+                waitForKeyboardCallbacks()
+                XCTAssertEqual(input.text, hypothesis)
+                XCTAssertTrue(received().isEmpty, "A partial result reached the terminal")
+            }
+            input.dictationRecordingDidEnd()
+            XCTAssertEqual(input.text, "Hello")
+            input.unmarkText()
+            XCTAssertTrue(received().isEmpty, "Dictation replacements have no marked range to commit")
+            let final = "hello how are you"
+            if usePhraseResult {
+                input.insertDictationResult([Phrase("hello"), Phrase(" how are you")])
+            } else {
+                input.insertText(final)
+            }
+            waitForKeyboardCallbacks()
+            XCTAssertEqual(received(), Data(final.utf8))
+            XCTAssertTrue(input.text.isEmpty)
+        }
+    }
+
+    func testFailedDictationDropsTheHypothesisBeforeOrdinaryTypingResumes() {
+        let bytes = keyboardBytes { input in
+            replaceHypothesis(in: input, with: "H")
+            waitForKeyboardCallbacks()
+            input.dictationRecognitionFailed()
+            XCTAssertTrue(input.text.isEmpty)
+            input.insertText("x")
+        }
+        XCTAssertEqual(bytes, Data("x".utf8))
+    }
+
+    func testListeningIndicatorFollowsRecordingAndFocus() throws {
+        let window = UIWindow(frame: .zero)
+        let pane = TerminalPane(directory: nil)
+        window.addSubview(pane)
+        pane.active = true
+        let indicator = try XCTUnwrap(pane.subviews.first { $0.accessibilityIdentifier == "t3rm.dictation.listening" })
+        XCTAssertTrue(indicator.isHidden)
+        pane.input.onDictationListeningChanged?(true)
+        XCTAssertFalse(indicator.isHidden)
+        pane.input.dictationRecordingDidEnd()
+        XCTAssertTrue(indicator.isHidden)
+        pane.input.onDictationListeningChanged?(true)
+        pane.input.textViewDidEndEditing(pane.input)
+        XCTAssertTrue(indicator.isHidden)
+    }
+
+    func testTypedPrefixBeforeDictationIsPreserved() {
+        let bytes = keyboardBytes { input in
+            input.insertText("H")
+            replaceHypothesis(in: input, with: "H")
+            waitForKeyboardCallbacks()
+            input.insertDictationResult([Phrase("Hello")])
+        }
+        XCTAssertEqual(bytes, Data("HHello".utf8))
+    }
+
+    func testAttributedMarkedTextCommitsOnlyWhenUnmarked() {
+        let input = TerminalInput()
+        let received = recordBytes(from: input)
+        for candidate in ["に", "日"] {
+            let marked = NSAttributedString(string: candidate, attributes: [.underlineStyle: NSUnderlineStyle.single.rawValue])
+            input.setAttributedMarkedText(marked, selectedRange: NSRange(location: marked.length, length: 0))
+            waitForKeyboardCallbacks()
+            XCTAssertTrue(received().isEmpty)
+        }
+        input.unmarkText()
+        input.unmarkText()
+        XCTAssertEqual(received(), Data("日".utf8))
+        XCTAssertTrue(input.text.isEmpty)
+    }
+
+    func testDictationAtBlankCursorWithEitherPlaceholderCallbackOrder() {
+        let transcript = "  café 世界"
+        for removeFirst in [false, true] {
+            let bytes = keyboardBytes { input in
+                let placeholder = input.insertDictationResultPlaceholder
+                if removeFirst { input.removeDictationResultPlaceholder(placeholder, willInsertResult: true) }
+                input.insertText(" ")
+                input.insertText(transcript)
+                if !removeFirst { input.removeDictationResultPlaceholder(placeholder, willInsertResult: true) }
+            }
+            XCTAssertEqual(bytes, Data(transcript.utf8), "Removed placeholder before text: \(removeFirst)")
+        }
+    }
+
+    func testDictationPreservesSeparatorAfterExistingWord() {
+        let bytes = keyboardBytes { input in
+            input.hasNonblankBeforeCursor = { true }
+            let placeholder = input.insertDictationResultPlaceholder
+            input.insertText(" ")
+            input.insertText("monde")
+            input.removeDictationResultPlaceholder(placeholder, willInsertResult: true)
+        }
+        XCTAssertEqual(bytes, Data(" monde".utf8))
+    }
+
+    func testPhraseResultWithPendingSpacePreservesDictatedWhitespace() {
+        let bytes = keyboardBytes { input in
+            let placeholder = input.insertDictationResultPlaceholder
+            input.insertText(" ")
+            input.insertDictationResult([Phrase("  café"), Phrase(" 世界")])
+            input.removeDictationResultPlaceholder(placeholder, willInsertResult: true)
+        }
+        XCTAssertEqual(bytes, Data("  café 世界".utf8))
+    }
+
+    func testCancellationKeepsOrdinaryTypingAndBackspaceInOrder() {
+        let bytes = keyboardBytes { input in
+            let placeholder = input.insertDictationResultPlaceholder
+            input.insertText(" ")
+            input.insertText("x")
+            input.deleteBackward()
+            input.removeDictationResultPlaceholder(placeholder, willInsertResult: false)
+            input.insertText("y")
+        }
+        XCTAssertEqual(bytes, Data(" x\u{7f}y".utf8))
+    }
+
+    func testRemovingCompletedPhrasePlaceholderPreservesFollowingTyping() {
+        let bytes = keyboardBytes { input in
+            let placeholder = input.insertDictationResultPlaceholder
+            input.insertDictationResult([Phrase("hello")])
+            input.removeDictationResultPlaceholder(placeholder, willInsertResult: true)
+            input.insertText(" ")
+            input.insertText("next")
+        }
+        XCTAssertEqual(bytes, Data("hello next".utf8))
+    }
+
+    func testOrdinarySpaceIsDeliveredWhileRecognitionIsPending() {
+        let bytes = keyboardBytes { input in
+            _ = input.insertDictationResultPlaceholder
+            input.insertText(" ")
+        }
+        XCTAssertEqual(bytes, Data(" ".utf8))
+    }
+
     func testCursorKeypadFunctionAndControlEncodings() {
         let engine = TerminalEngine(columns: 10, rows: 2)
         func bytes(_ key: TerminalKey, _ modifiers: UIKeyModifierFlags = []) -> Data {

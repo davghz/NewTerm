@@ -68,7 +68,13 @@ final class TerminalInput: UITextView, UITextViewDelegate {
     var onPaste: (() -> Void)?
     var onCopy: (() -> Void)?
     var onFocus: ((Bool) -> Void)?
+    var onDictationListeningChanged: ((Bool) -> Void)?
+    var hasNonblankBeforeCursor: () -> Bool = { false }
     private var hasComposition = false
+    private var dictationPlaceholders = Set<NSObject>()
+    private var expectingDictationText = false
+    private var deferredInsertions: [String] = []
+    private var flushScheduled = false
 
     init() {
         super.init(frame: .zero, textContainer: nil)
@@ -76,7 +82,6 @@ final class TerminalInput: UITextView, UITextViewDelegate {
         accessibilityIdentifier = "t3rm.input"
         accessibilityLabel = "Shell input"
         backgroundColor = .clear
-        tintColor = .clear
         textColor = .clear
         font = Preferences.font
         textContainerInset = .zero
@@ -92,48 +97,139 @@ final class TerminalInput: UITextView, UITextViewDelegate {
         isScrollEnabled = false
         inputAssistantItem.leadingBarButtonGroups = []
         inputAssistantItem.trailingBarButtonGroups = []
+        NotificationCenter.default.addObserver(self, selector: #selector(inputModeChanged),
+                                              name: UITextInputMode.currentInputModeDidChangeNotification, object: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
 
     override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
         hasComposition = true
         super.setMarkedText(markedText, selectedRange: selectedRange)
+        showPreview()
+    }
+    override func setAttributedMarkedText(_ markedText: NSAttributedString?, selectedRange: NSRange) {
+        hasComposition = true
+        super.setAttributedMarkedText(markedText, selectedRange: selectedRange)
+        showPreview()
+    }
+    private func showPreview() {
         textColor = .label
         backgroundColor = .secondarySystemBackground
     }
     override func unmarkText() {
+        let wasComposing = hasComposition || markedTextRange != nil
         super.unmarkText()
         hasComposition = false
-        deliver()
+        if wasComposing { deliver() }
     }
-    override func insertText(_ text: String) {
-        if hasComposition {
-            super.insertText(text)
-            hasComposition = markedTextRange != nil
-            deliver()
-        } else {
-            super.insertText(text)
-        }
+    override func insertText(_ value: String) {
+        // Dictation edits its provisional transcript with replace(_:withText:).
+        // Only an explicit insertion or IME commit belongs in the terminal.
+        if !hasComposition, markedTextRange == nil, !text.isEmpty { text = "" }
+        super.insertText(value)
+        hasComposition = markedTextRange != nil
+        deliver()
     }
     override func insertDictationResult(_ dictationResult: [UIDictationPhrase]) {
         let value = dictationResult.map(\.text).joined()
+        // An explicit result can arrive before UIKit removes its placeholder.
+        // Retire it now so that removal cannot classify subsequent typing as dictation.
+        if !expectingDictationText, dictationPlaceholders.count == 1 { dictationPlaceholders.removeAll() }
         hasComposition = false
         text = ""
         backgroundColor = .clear
         textColor = .clear
-        if !value.isEmpty { onKey?(.text(value), []) }
+        if !value.isEmpty { sendCommittedText(value, isDictationResult: true) }
     }
-    func textViewDidChange(_ textView: UITextView) { deliver() }
+
+    // iOS 15 reports "dictation" as the active keyboard language while recording.
+    // This signal only controls feedback. Text delivery uses UITextInput commits.
+    @objc private func inputModeChanged() {
+        let listening = isFirstResponder && textInputMode?.primaryLanguage == "dictation"
+        if listening { textColor = .label }
+        else if !hasComposition, text.isEmpty { textColor = .clear }
+        onDictationListeningChanged?(listening)
+    }
+
+    override func dictationRecordingDidEnd() {
+        onDictationListeningChanged?(false)
+    }
+
+    override func dictationRecognitionFailed() {
+        if !hasComposition { text = ""; textColor = .clear; backgroundColor = .clear }
+        onDictationListeningChanged?(false)
+    }
+
+    // Text view placeholders are attachments. Keep them out of storage because
+    // the terminal cannot retract bytes once a shell has received them.
+    override var insertDictationResultPlaceholder: Any {
+        let placeholder = NSObject()
+        dictationPlaceholders.insert(placeholder)
+        return placeholder
+    }
+
+    override func frame(forDictationResultPlaceholder placeholder: Any) -> CGRect {
+        caretRect(for: endOfDocument)
+    }
+
+    override func removeDictationResultPlaceholder(_ placeholder: Any, willInsertResult: Bool) {
+        guard let token = placeholder as? NSObject, dictationPlaceholders.remove(token) != nil else { return }
+        if willInsertResult {
+            // UIKit can confirm the placeholder on either side of insertText.
+            expectingDictationText = true
+            if deferredInsertions.count > 1 { flushInsertions() }
+            else { scheduleFlush() }
+        } else if dictationPlaceholders.isEmpty && !expectingDictationText {
+            flushInsertions()
+        }
+    }
+
+    private func sendCommittedText(_ value: String, isDictationResult: Bool = false) {
+        if !deferredInsertions.isEmpty {
+            deferredInsertions.append(value)
+            if isDictationResult || expectingDictationText {
+                expectingDictationText = true
+                flushInsertions()
+            }
+        } else if !isDictationResult, value == " ", expectingDictationText || !dictationPlaceholders.isEmpty,
+                  !hasNonblankBeforeCursor() {
+            // iOS 15 may send its word separator separately from the phrase.
+            deferredInsertions.append(value)
+            scheduleFlush()
+        } else {
+            expectingDictationText = false
+            onKey?(.text(value), [])
+        }
+    }
+
+    private func scheduleFlush() {
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.flushScheduled = false
+            self?.flushInsertions()
+        }
+    }
+
+    private func flushInsertions() {
+        let skipSeparator = expectingDictationText && deferredInsertions.count > 1
+        let pending = deferredInsertions.dropFirst(skipSeparator ? 1 : 0)
+        deferredInsertions.removeAll()
+        expectingDictationText = false
+        for value in pending { onKey?(.text(value), []) }
+    }
+
     private func deliver() {
         guard markedTextRange == nil && !hasComposition else { return }
         backgroundColor = .clear
         textColor = .clear
         guard let value = text, !value.isEmpty else { return }
         text = ""
-        onKey?(.text(value), [])
+        sendCommittedText(value)
     }
 
     override func deleteBackward() {
+        flushInsertions()
         if hasComposition || markedTextRange != nil || !text.isEmpty { super.deleteBackward() }
         else { onKey?(.backspace, []) }
     }
@@ -145,12 +241,16 @@ final class TerminalInput: UITextView, UITextViewDelegate {
         }
         return super.canPerformAction(action, withSender: sender)
     }
-    override func paste(_ sender: Any?) { onPaste?() }
+    override func paste(_ sender: Any?) { flushInsertions(); onPaste?() }
     override func copy(_ sender: Any?) { onCopy?() }
-    func textViewDidBeginEditing(_ textView: UITextView) { onFocus?(true) }
-    func textViewDidEndEditing(_ textView: UITextView) { onFocus?(false) }
+    func textViewDidBeginEditing(_ textView: UITextView) { inputModeChanged(); onFocus?(true) }
+    func textViewDidEndEditing(_ textView: UITextView) {
+        onDictationListeningChanged?(false)
+        onFocus?(false)
+    }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        flushInsertions()
         var unused = Set<UIPress>()
         for press in presses {
             guard let key = press.key, !key.modifierFlags.contains(.command), markedTextRange == nil else {

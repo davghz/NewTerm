@@ -23,6 +23,26 @@ final class TerminalEngineTests: XCTestCase {
         }
     }
 
+    func testNonblankBeforeCursorFollowsTheTerminalInsertionPoint() {
+        let cases: [(String, Bool)] = [
+            ("", false),
+            ("ab", true),
+            ("ab ", false),
+            ("ab\r\n", false),
+            ("界", true),
+            ("\u{3000}", false),
+            ("   x", true),
+            ("abc ", false),
+            ("abc " + esc + "[3G", true),
+            ("abc" + esc + "[?1049h", false)
+        ]
+        for (output, expected) in cases {
+            let engine = TerminalEngine(columns: 4, rows: 2)
+            engine.feed(Data(output.utf8))
+            XCTAssertEqual(engine.hasNonblankBeforeCursor, expected, output.debugDescription)
+        }
+    }
+
     func testEveryPTYReadBoundaryAndOrderedEffects() {
         let transcript = "p> " + esc + "[31;1m界e\u{301}👩‍💻" + esc + "[m" + esc + "[6n"
             + "\r\n" + esc + "]2;Überblick" + esc + "\\" + esc + "]7;file:///tmp/a\u{07}\u{07}"

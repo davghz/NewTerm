@@ -50,6 +50,15 @@ public final class TerminalEngine {
     public var cursorColumn: Int { screen.column }
     public var cursorRow: Int { screen.row }
 
+    public var hasNonblankBeforeCursor: Bool {
+        let cells = screen.grid[screen.row]
+        // While autowrap is pending, the next insertion follows the last cell.
+        var column = screen.pendingWrap ? screen.column : screen.column - 1
+        guard column >= 0 else { return false }
+        if cells[column].width == 0, column > 0 { column -= 1 }
+        return cells[column].text.first.map { !$0.isWhitespace } ?? false
+    }
+
     /// Number of columns joined to the following row by autowrap; nil for hard breaks.
     public func wrappedLength(at index: Int) -> Int? {
         let count = historyCount

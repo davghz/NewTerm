@@ -27,7 +27,7 @@ ldid -S "$app/T3ShellLauncher"
 ldid -S"packaging/terminal.entitlements" "$app/t3rm"
 # Xcode can reuse products from a build with a restrictive umask.
 chmod -R a+rX "$app"
-version=0.2.0~alpha2
+version=0.2.0~alpha2-3
 cat > "$temp/deb/DEBIAN/control" <<EOF
 Package: $identifier
 Name: $display

@@ -141,6 +141,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     private let shelf = KeyShelf()
     private let scroll = UIScrollView()
     private let status = UILabel()
+    private let listeningIndicator = UIButton(type: .system)
     private let mouse = MouseGesture()
     private let keyboardPull = UIPanGestureRecognizer()
     private var keyboardTopAtDragStart: CGFloat?
@@ -172,6 +173,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
             canvas.active = active
             if !active {
                 copyDeadline = -.infinity
+                if !listeningIndicator.isHidden { setDictationListening(false) }
                 input.resignFirstResponder()
             }
         }
@@ -205,6 +207,12 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         status.textAlignment = .center
         status.isHidden = true
         addSubview(status)
+        listeningIndicator.isHidden = true
+        listeningIndicator.isUserInteractionEnabled = false
+        listeningIndicator.accessibilityIdentifier = "t3rm.dictation.listening"
+        listeningIndicator.accessibilityLabel = "Listening"
+        listeningIndicator.accessibilityTraits = .staticText
+        addSubview(listeningIndicator)
         tap = UITapGestureRecognizer(target: self, action: #selector(focus))
         tap.delegate = self
         scroll.addGestureRecognizer(tap)
@@ -263,10 +271,14 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         scroll.addGestureRecognizer(keyboardPull)
         canvas.activate = { [weak self] in self?.focus() }
         input.onKey = { [weak self] key, flags in self?.send(key, flags) }
+        input.hasNonblankBeforeCursor = { [weak model] in model?.hasNonblankBeforeCursor ?? false }
         input.onPaste = { [weak self] in self?.pasteContent() }
         input.onCopy = { [weak self] in self?.showTranscript(search: false) }
         input.onFocus = { [weak self] focused in
             self?.model.send { modes in modes.focusReporting ? Data((focused ? "\u{1b}[I" : "\u{1b}[O").utf8) : Data() }
+        }
+        input.onDictationListeningChanged = { [weak self] listening in
+            self?.setDictationListening(listening)
         }
         shelf.send = { [weak self] key in self?.send(key, []) }
         shelf.pasteAction = { [weak self] in self?.pasteContent() }
@@ -286,6 +298,8 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
                      Notification.Name.NSProcessInfoPowerStateDidChange] {
             NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged), name: name, object: nil)
         }
+        NotificationCenter.default.addObserver(self, selector: #selector(updateListeningIndicator),
+                                               name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
         settingsChanged()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -298,6 +312,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         input.keyboardAppearance = chrome.isDark ? .dark : .light
         status.textColor = chrome.text
         status.backgroundColor = chrome.raised
+        updateListeningIndicator()
         trackpad.isEnabled = Preferences.defaults.integer(forKey: "keyboardTrackpadSensitivity") > 0
         input.inputAccessoryView = shelf
         shelf.rebuild()
@@ -311,12 +326,35 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         invalidate()
     }
 
+    private func setDictationListening(_ listening: Bool) {
+        listeningIndicator.isHidden = !(listening && active && visible)
+        updateListeningIndicator()
+        setNeedsLayout()
+    }
+
+    @objc private func updateListeningIndicator() {
+        let chrome = TerminalChrome(palette: canvas.palette)
+        var style = UIButton.Configuration.plain()
+        style.title = "Listening…"
+        style.image = UIImage(systemName: "mic.fill")
+        style.showsActivityIndicator = !listeningIndicator.isHidden && !UIAccessibility.isReduceMotionEnabled
+        style.buttonSize = .small
+        style.cornerStyle = .capsule
+        style.imagePadding = 5
+        style.baseForegroundColor = chrome.text
+        style.background.backgroundColor = chrome.raised
+        style.background.strokeColor = chrome.stroke
+        style.background.strokeWidth = 1
+        listeningIndicator.configuration = style
+    }
+
     override func didMoveToWindow() { super.didMoveToWindow(); updateVisibility() }
     private var visible: Bool { window != nil && inForeground && !isHidden }
     private func updateVisibility() {
         generation += 1
         if visible { force = true; invalidate() }
         else {
+            if !listeningIndicator.isHidden { setDictationListening(false) }
             displayLink?.invalidate(); displayLink = nil
             canvas.clearCache()
         }
@@ -421,6 +459,14 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         let y = scroll.frame.minY + min(max(0, scroll.bounds.height - cell.height), max(0, CGFloat(row)*cell.height - canvas.fraction))
         input.frame = CGRect(x: x, y: y, width: min(180, max(40, bounds.width - x)), height: cell.height)
         input.isUserInteractionEnabled = true
+        if !listeningIndicator.isHidden {
+            let available = bounds.inset(by: safeAreaInsets).insetBy(dx: 6, dy: 6)
+            let size = listeningIndicator.sizeThatFits(available.size)
+            let width = min(size.width, max(0, available.width))
+            var frame = CGRect(x: available.maxX - width, y: available.maxY - size.height, width: width, height: size.height)
+            if frame.intersects(input.frame) { frame.origin.y = max(available.minY, input.frame.minY - size.height - 4) }
+            listeningIndicator.frame = frame.integral
+        }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
