@@ -347,7 +347,7 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in pane.model.send { _ in TransferArchive.cancel } })
         alert.addAction(UIAlertAction(title: "Choose File", style: .default) { [weak self] _ in
             guard let self = self else { return }
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: false)
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
             self.pickerPurpose = .upload(pane)
             picker.delegate = self
             self.present(picker, animated: true)
@@ -390,19 +390,11 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
         defer { pickerPurpose = nil }
         switch pickerPurpose {
         case .upload(let pane):
-            guard let file = urls.first else { pane.model.send { _ in TransferArchive.cancel }; return }
+            guard let importedCopy = urls.first else { pane.model.send { _ in TransferArchive.cancel }; return }
             DispatchQueue.global(qos: .userInitiated).async {
-                let scoped = file.startAccessingSecurityScopedResource()
-                defer { if scoped { file.stopAccessingSecurityScopedResource() } }
+                defer { try? FileManager.default.removeItem(at: importedCopy) }
                 do {
-                    var error: NSError?
-                    var result: Result<Data, Error>?
-                    NSFileCoordinator().coordinate(readingItemAt: file, options: .withoutChanges, error: &error) { url in
-                        result = Result { try TransferArchive.upload(file: url) }
-                    }
-                    if let error = error { throw error }
-                    guard let result = result else { throw CocoaError(.fileReadUnknown) }
-                    let response = try result.get()
+                    let response = try TransferArchive.upload(file: importedCopy)
                     pane.model.send { _ in response }
                 } catch {
                     pane.model.send { _ in TransferArchive.cancel }
