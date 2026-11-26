@@ -199,7 +199,7 @@ private final class KeyShelfScrollView: UIScrollView {
     }
 }
 
-final class KeyShelf: UIInputView {
+final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
     var send: ((TerminalKey) -> Void)?
     var pasteAction: (() -> Void)?
     var selectionAction: (() -> Void)?
@@ -239,8 +239,8 @@ final class KeyShelf: UIInputView {
         dismissPan.addTarget(self, action: #selector(pullDown(_:)))
         dismissPan.maximumNumberOfTouches = 1
         dismissPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        dismissPan.delegate = self
         addGestureRecognizer(dismissPan)
-        scroll.panGestureRecognizer.require(toFail: dismissPan)
         let pixel = 1 / UIScreen.main.scale
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
@@ -273,6 +273,10 @@ final class KeyShelf: UIInputView {
         guard gestureRecognizer === dismissPan else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
         let movement = dismissPan.translation(in: self)
         return movement.y > abs(movement.x)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        other === scroll.panGestureRecognizer
     }
 
     @objc private func pullDown(_ pan: UIPanGestureRecognizer) {
