@@ -17,8 +17,12 @@ enum TerminalKey {
         switch self {
         case .keypad(let normal, let application): encoded = modes.applicationKeypad ? esc + "O" + application : normal
         case .text(let text):
+            if modifiers.contains(.shift), text == "\n" || text == "\r" {
+                return Data("\(esc)[13;\(modifier)u".utf8)
+            }
+            let shifted = modifiers.contains(.shift) && text.count == 1 ? text.uppercased() : text
             var bytes = Data()
-            for char in text {
+            for char in shifted {
                 if modifiers.contains(.alternate) { bytes.append(0x1b) }
                 if modifiers.contains(.control), let code = char.asciiValue {
                     switch code {
@@ -34,7 +38,7 @@ enum TerminalKey {
             return bytes
         case .backspace: encoded = (modifiers.contains(.alternate) ? esc : "") + "\u{7f}"
         case .escape: encoded = esc
-        case .tab: encoded = "\t"
+        case .tab: encoded = modifiers.contains(.shift) ? esc + "[Z" : "\t"
         case .backtab: encoded = esc + "[Z"
         case .up: encoded = cursor("A")
         case .down: encoded = cursor("B")
@@ -211,70 +215,85 @@ final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
     var pasteAction: (() -> Void)?
     var selectionAction: (() -> Void)?
     var dismissAction: (() -> Void)?
+    var heightDidChange: (() -> Void)?
 
-    private enum Page { case navigation, function, more }
-    private var page = Page.navigation
+    private enum Page { case closed, more, function }
+    private var page = Page.closed
     private var modifiers: UIKeyModifierFlags = []
     private var modifierButtons: [(UIKeyModifierFlags, UIButton)] = []
-    private var pageButtons: [(Page, UIButton)] = []
+    private let base = KeyShelfScrollView()
+    private let extra = KeyShelfScrollView()
     private let controls = UIStackView()
     private let keys = UIStackView()
-    private let scroll = KeyShelfScrollView()
     private let dismissPan = UIPanGestureRecognizer()
-    private let separator = UIView()
     private let edge = UIView()
+    private var moreButton: UIButton!
+    private var primaryWidths: [NSLayoutConstraint] = []
     private var chrome = TerminalChrome.current
     private var usesIcons = false
+    private let rowHeight: CGFloat = 46
 
     init() {
         super.init(frame: CGRect(x: 0, y: 0, width: 375, height: 46), inputViewStyle: .keyboard)
-        autoresizingMask = [.flexibleWidth]
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scroll)
-        for item in [controls, separator, keys] {
-            item.translatesAutoresizingMaskIntoConstraints = false
-            scroll.addSubview(item)
+        allowsSelfSizing = true
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        base.accessibilityIdentifier = "t3rm.keyShelf"
+        extra.accessibilityIdentifier = "t3rm.keyShelf.extra"
+        let rows = UIStackView(arrangedSubviews: [extra, base])
+        rows.axis = .vertical
+        rows.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(rows)
+        for (scroll, stack) in [(base, controls), (extra, keys)] {
+            scroll.delaysContentTouches = false
+            scroll.isDirectionalLockEnabled = true
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.showsVerticalScrollIndicator = false
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            scroll.addSubview(stack)
+            let height = scroll.heightAnchor.constraint(equalToConstant: rowHeight)
+            height.priority = UILayoutPriority(999)
+            NSLayoutConstraint.activate([
+                height,
+                stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+                stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+                stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+                stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+                stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+                stack.widthAnchor.constraint(greaterThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor)
+            ])
         }
+        let fitBase = controls.widthAnchor.constraint(equalTo: base.frameLayoutGuide.widthAnchor)
+        fitBase.priority = UILayoutPriority(999)
+        fitBase.isActive = true
         edge.translatesAutoresizingMaskIntoConstraints = false
         edge.isUserInteractionEnabled = false
         addSubview(edge)
-        scroll.accessibilityIdentifier = "t3rm.keyShelf"
-        scroll.delaysContentTouches = false
-        scroll.isDirectionalLockEnabled = true
-        scroll.contentInsetAdjustmentBehavior = .never
-        scroll.showsVerticalScrollIndicator = false
         dismissPan.addTarget(self, action: #selector(pullDown(_:)))
         dismissPan.maximumNumberOfTouches = 1
         dismissPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         dismissPan.delegate = self
         addGestureRecognizer(dismissPan)
-        let pixel = 1 / UIScreen.main.scale
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
-            scroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
-            scroll.topAnchor.constraint(equalTo: topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scroll.contentLayoutGuide.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
-            scroll.contentLayoutGuide.widthAnchor.constraint(greaterThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor),
-            controls.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
-            controls.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
-            controls.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            separator.leadingAnchor.constraint(equalTo: controls.trailingAnchor, constant: 5),
-            separator.centerYAnchor.constraint(equalTo: controls.centerYAnchor),
-            separator.widthAnchor.constraint(equalToConstant: pixel),
-            separator.heightAnchor.constraint(equalToConstant: 20),
-            keys.leadingAnchor.constraint(equalTo: separator.trailingAnchor, constant: 5),
-            keys.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
-            keys.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
-            keys.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            rows.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
+            rows.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
+            rows.topAnchor.constraint(equalTo: topAnchor),
+            rows.bottomAnchor.constraint(equalTo: bottomAnchor),
             edge.leadingAnchor.constraint(equalTo: leadingAnchor),
             edge.trailingAnchor.constraint(equalTo: trailingAnchor),
             edge.topAnchor.constraint(equalTo: topAnchor),
-            edge.heightAnchor.constraint(equalToConstant: pixel)
+            edge.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale)
         ])
         rebuild()
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: page == .closed ? rowHeight : 2 * rowHeight)
+    }
+
+    override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
+        CGSize(width: super.systemLayoutSizeFitting(targetSize).width, height: intrinsicContentSize.height)
+    }
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === dismissPan else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
@@ -283,7 +302,7 @@ final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        other === scroll.panGestureRecognizer
+        other === base.panGestureRecognizer || other === extra.panGestureRecognizer
     }
 
     @objc private func pullDown(_ pan: UIPanGestureRecognizer) {
@@ -304,39 +323,40 @@ final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
         chrome = .current
         usesIcons = Preferences.defaults.integer(forKey: "keyboardAccessoryStyle") == 1
         backgroundColor = chrome.surface
-        separator.backgroundColor = chrome.stroke
         edge.backgroundColor = chrome.stroke
-        scroll.indicatorStyle = chrome.isDark ? .white : .black
+        extra.indicatorStyle = chrome.isDark ? .white : .black
+        base.indicatorStyle = extra.indicatorStyle
+        NSLayoutConstraint.deactivate(primaryWidths)
+        primaryWidths.removeAll()
         for button in controls.arrangedSubviews { button.removeFromSuperview() }
         modifierButtons.removeAll()
-        pageButtons.removeAll()
+        controls.addArrangedSubview(modifier("ctrl", symbol: "control", flag: .control, primary: true))
         controls.addArrangedSubview(character("esc", .escape, label: "Escape", symbol: "escape", primary: true))
-        for (title, symbol, flag) in [("ctrl", "control", UIKeyModifierFlags.control), ("alt", "option", .alternate)] {
-            let button = makeButton(title, symbol: symbol, primary: true) { [weak self] in
-                guard let self = self else { return }
-                self.modifiers.formSymmetricDifference(flag)
-                self.updateSelection()
-            }
-            controls.addArrangedSubview(button)
-            modifierButtons.append((flag, button))
+        controls.addArrangedSubview(modifier("shift", symbol: "shift", flag: .shift, primary: true))
+        moreButton = makeButton("more", label: "More keys", symbol: "ellipsis", primary: true) { [weak self] in
+            guard let self = self else { return }
+            self.setPage(self.page == .closed ? .more : .closed)
         }
-        for (title, label, symbol, next) in [("fn", "Function keys", "function", Page.function),
-                                             ("…", "More keys", "ellipsis", .more)] {
-            let button = makeButton(title, label: label, symbol: symbol, primary: true) { [weak self] in
-                guard let self = self else { return }
-                self.page = self.page == next ? .navigation : next
-                self.showPage()
-                UIAccessibility.post(notification: .layoutChanged, argument: self.pageButtons.first { $0.0 == next }?.1)
-            }
-            controls.addArrangedSubview(button)
-            pageButtons.append((next, button))
-        }
+        controls.addArrangedSubview(moreButton)
+        controls.addArrangedSubview(UIView())
+        addArrows()
+        NSLayoutConstraint.activate(primaryWidths)
         showPage()
+    }
+
+    private func modifier(_ title: String, symbol: String, flag: UIKeyModifierFlags, primary: Bool = false) -> UIButton {
+        let button = makeButton(title, symbol: symbol, primary: primary, identifier: "t3rm.keyShelf." + title) { [weak self] in
+            guard let self = self else { return }
+            self.modifiers.formSymmetricDifference(flag)
+            self.updateSelection()
+        }
+        modifierButtons.append((flag, button))
+        return button
     }
 
     private func updateSelection() {
         for (flag, button) in modifierButtons { button.isSelected = modifiers.contains(flag) }
-        for (item, button) in pageButtons { button.isSelected = page == item }
+        moreButton.isSelected = page != .closed
     }
 
     private func makeButton(_ title: String, label: String? = nil, symbol: String? = nil,
@@ -345,8 +365,7 @@ final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
         let button = UIButton(type: .custom)
         let font = UIFont.monospacedSystemFont(ofSize: compact ? 11 : 13, weight: .semibold)
         var config = UIButton.Configuration.plain()
-        let useSymbol = usesIcons || title == "…"
-        if useSymbol, let symbol = symbol, let image = UIImage(systemName: symbol) {
+        if usesIcons, let symbol = symbol, let image = UIImage(systemName: symbol) {
             config.image = image
             config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: compact ? 10 : 14, weight: .semibold)
         } else {
@@ -372,10 +391,20 @@ final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
         button.accessibilityLabel = label ?? title
         button.accessibilityIdentifier = identifier
         button.addAction(UIAction { _ in action() }, for: .touchUpInside)
-        let phoneMinimum: CGFloat = primary ? 34 : 44
-        let minimum: CGFloat = Preferences.isPad ? 46 : phoneMinimum
         let legendWidth = config.image == nil ? (title as NSString).size(withAttributes: [.font: font]).width : 0
-        button.widthAnchor.constraint(equalToConstant: max(minimum, ceil(legendWidth) + 10)).isActive = true
+        let minimum = max(primary ? 32 : 44, ceil(legendWidth) + 10)
+        if primary {
+            // Keep the arrow cluster on screen in portrait and give it room to breathe on iPad.
+            let preferred = button.widthAnchor.constraint(equalTo: base.frameLayoutGuide.widthAnchor, multiplier: 0.12)
+            preferred.priority = .defaultHigh
+            primaryWidths.append(preferred)
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(greaterThanOrEqualToConstant: minimum),
+                button.widthAnchor.constraint(lessThanOrEqualToConstant: max(minimum, Preferences.isPad ? 60 : 52))
+            ])
+        } else {
+            button.widthAnchor.constraint(equalToConstant: minimum).isActive = true
+        }
         return button
     }
 
@@ -384,32 +413,49 @@ final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
         makeButton(title, label: label, symbol: symbol, primary: primary, compact: compact) { [weak self] in self?.send?(key) }
     }
 
-    private func showPage() {
-        for item in keys.arrangedSubviews { item.removeFromSuperview() }
-        let spacer = UIView()
-        let preferredWidth = spacer.widthAnchor.constraint(equalToConstant: 0)
-        preferredWidth.priority = .defaultLow
-        preferredWidth.isActive = true
-        switch page {
-        case .navigation:
-            keys.addArrangedSubview(character("⇥", .tab, label: "Tab", symbol: "arrow.right.to.line", primary: true))
-            addArrows()
-            fallthrough
-        case .more:
-            for (title, key) in [("Home", TerminalKey.home), ("End", .end), ("PgUp", .pageUp),
-                                 ("PgDn", .pageDown), ("Ins", .insert), ("Del", .delete)] {
-                keys.addArrangedSubview(character(title, key))
-            }
-            for symbol in ["/", "|", "~", "-", "_", "\\", "`"] { keys.addArrangedSubview(character(symbol, .text(symbol))) }
-            keys.addArrangedSubview(makeButton("Paste", identifier: "t3rm.keyShelf.paste") { [weak self] in self?.pasteAction?() })
-            keys.addArrangedSubview(makeButton("Select", identifier: "t3rm.keyShelf.select") { [weak self] in self?.selectionAction?() })
-            keys.addArrangedSubview(makeButton("Hide", identifier: "t3rm.keyShelf.hide") { [weak self] in self?.dismissAction?() })
-        case .function:
-            for n in 1...12 { keys.addArrangedSubview(character("F\(n)", .function(n))) }
+    private func setPage(_ next: Page) {
+        let wasClosed = page == .closed
+        page = next
+        showPage()
+        if wasClosed != (next == .closed) {
+            frame.size.height = intrinsicContentSize.height
+            invalidateIntrinsicContentSize()
+            heightDidChange?()
         }
-        keys.addArrangedSubview(spacer)
+        UIAccessibility.post(notification: .layoutChanged, argument: moreButton)
+    }
+
+    private func showPage() {
+        modifierButtons.removeAll { $0.0 == .alternate }
+        for item in keys.arrangedSubviews { item.removeFromSuperview() }
+        extra.isHidden = page == .closed
+        if page != .closed {
+            let function = makeButton("fn", label: "Function keys", symbol: "function") { [weak self] in
+                guard let self = self else { return }
+                self.setPage(self.page == .function ? .more : .function)
+            }
+            function.isSelected = page == .function
+            if page == .function {
+                keys.addArrangedSubview(function)
+                for n in 1...12 { keys.addArrangedSubview(character("F\(n)", .function(n))) }
+            } else {
+                keys.addArrangedSubview(character("tab", .tab, label: "Tab", symbol: "arrow.right.to.line"))
+                keys.addArrangedSubview(makeButton("Paste", symbol: "doc.on.clipboard", identifier: "t3rm.keyShelf.paste") { [weak self] in self?.pasteAction?() })
+                for (title, key) in [("Home", TerminalKey.home), ("End", .end), ("PgUp", .pageUp), ("PgDn", .pageDown)] {
+                    keys.addArrangedSubview(character(title, key))
+                }
+                keys.addArrangedSubview(modifier("alt", symbol: "option", flag: .alternate))
+                keys.addArrangedSubview(function)
+                keys.addArrangedSubview(character("Ins", .insert))
+                keys.addArrangedSubview(character("Del", .delete))
+                for symbol in ["/", "|", "~", "-", "_", "\\", "`"] { keys.addArrangedSubview(character(symbol, .text(symbol))) }
+                keys.addArrangedSubview(makeButton("Select", identifier: "t3rm.keyShelf.select") { [weak self] in self?.selectionAction?() })
+                keys.addArrangedSubview(makeButton("Hide", identifier: "t3rm.keyShelf.hide") { [weak self] in self?.dismissAction?() })
+            }
+            keys.addArrangedSubview(UIView())
+        }
         updateSelection()
-        scroll.setContentOffset(.zero, animated: false)
+        extra.setContentOffset(.zero, animated: false)
     }
 
     private func addArrows() {
@@ -420,7 +466,7 @@ final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
         let paired = style == 0 || style == 1
         let up = character(vim ? "k" : "↑", .up, label: "Up arrow", symbol: vim ? nil : "arrow.up", primary: true, compact: paired)
         let down = character(vim ? "j" : "↓", .down, label: "Down arrow", symbol: vim ? nil : "arrow.down", primary: true, compact: paired)
-        keys.addArrangedSubview(left)
+        controls.addArrangedSubview(left)
         if paired {
             let middle = UIStackView(arrangedSubviews: [up, down])
             middle.axis = .vertical
@@ -428,11 +474,11 @@ final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
             middle.isLayoutMarginsRelativeArrangement = true
             middle.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0)
             middle.spacing = style == 1 ? 3 : 1
-            keys.addArrangedSubview(middle)
+            controls.addArrangedSubview(middle)
         } else {
-            keys.addArrangedSubview(style == 4 ? up : down)
-            keys.addArrangedSubview(style == 4 ? down : up)
+            controls.addArrangedSubview(style == 4 ? up : down)
+            controls.addArrangedSubview(style == 4 ? down : up)
         }
-        keys.addArrangedSubview(right)
+        controls.addArrangedSubview(right)
     }
 }

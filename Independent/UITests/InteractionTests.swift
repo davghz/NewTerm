@@ -165,6 +165,8 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(screenContains("Darwin"))
         let escape = app.buttons["Escape"]
         XCTAssertTrue(escape.isHittable)
+        let more = app.buttons["More keys"]
+        more.tap()
         let function = app.buttons["Function keys"]
         function.tap()
         XCTAssertTrue(app.buttons["F1"].isHittable)
@@ -206,23 +208,37 @@ final class InteractionTests: XCTestCase {
         command("printf 'waiting-%s\\n' F12; IFS= read -r key; [ \"$key\" = \"$(printf '\\033[24~')\" ] && printf 'received-%s\\n' F12")
         XCTAssertTrue(screenContains("waiting-F12"))
         let shelf = app.scrollViews["t3rm.keyShelf"]
+        let extra = app.scrollViews["t3rm.keyShelf.extra"]
+        let more = shelf.buttons["More keys"]
         XCTAssertTrue(shelf.waitForExistence(timeout: 5))
         let pixel = 1 / UIScreen.main.scale
-        func fullyVisible(_ button: XCUIElement) -> Bool {
+        func fullyVisible(_ button: XCUIElement, in row: XCUIElement) -> Bool {
             guard button.exists && button.isHittable else { return false }
-            return shelf.frame.insetBy(dx: -pixel, dy: -pixel).contains(button.frame)
+            return row.frame.insetBy(dx: -pixel, dy: -pixel).contains(button.frame)
         }
         if UIDevice.current.userInterfaceIdiom == .phone && app.frame.width >= 375 {
-            for label in ["Up arrow", "Down arrow", "Left arrow", "Right arrow"] {
-                XCTAssertTrue(fullyVisible(shelf.buttons[label]), label)
+            for label in ["ctrl", "Escape", "t3rm.keyShelf.shift", "More keys", "Up arrow", "Down arrow", "Left arrow", "Right arrow"] {
+                XCTAssertTrue(fullyVisible(shelf.buttons[label], in: shelf), "\(label) at \(shelf.buttons[label].frame) in \(shelf.frame)")
             }
         }
-        let left = shelf.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
-        let right = shelf.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+        attachScreen("Terminal keys")
+        let baseline = shelf.frame
+        more.tap()
+        XCTAssertTrue(extra.waitForExistence(timeout: 5))
+        let expanded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            abs(shelf.frame.minY - baseline.minY) <= 2 && abs(extra.frame.height - baseline.height) <= 2
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [expanded], timeout: 5), .completed,
+                       "Collapsed base \(baseline), expanded base \(shelf.frame), extra \(extra.frame)")
+        XCTAssertLessThanOrEqual(extra.frame.maxY, shelf.frame.minY + pixel)
+        XCTAssertTrue(fullyVisible(extra.buttons["t3rm.keyShelf.paste"], in: extra))
+        attachScreen("Expanded terminal keys")
+        let left = extra.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5))
+        let right = extra.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5))
         func reveal(_ label: String, swipeLeft: Bool) {
-            let button = shelf.buttons[label]
-            for _ in 0..<7 {
-                if fullyVisible(button) { return }
+            let button = extra.buttons[label]
+            for _ in 0..<8 {
+                if fullyVisible(button, in: extra) { return }
                 let start = swipeLeft ? right : left
                 start.press(forDuration: 0.1, thenDragTo: swipeLeft ? left : right)
             }
@@ -231,18 +247,41 @@ final class InteractionTests: XCTestCase {
         let ctrl = shelf.buttons["ctrl"]
         ctrl.tap()
         reveal("t3rm.keyShelf.hide", swipeLeft: true)
-        reveal("ctrl", swipeLeft: false)
+        reveal("Tab", swipeLeft: false)
         XCTAssertTrue(ctrl.isSelected, "Dragging across keys consumed Ctrl")
         ctrl.tap()
-        let function = shelf.buttons["Function keys"]
-        function.tap()
+        reveal("Function keys", swipeLeft: true)
+        extra.buttons["Function keys"].tap()
         reveal("F12", swipeLeft: true)
-        shelf.buttons["F12"].tap()
+        extra.buttons["F12"].tap()
         app.typeText("\n")
         XCTAssertTrue(screenContains("received-F12"))
-        reveal("More keys", swipeLeft: false)
-        shelf.buttons["More keys"].tap()
-        reveal("t3rm.keyShelf.paste", swipeLeft: true)
+        more.tap()
+        XCTAssertFalse(extra.exists)
+        XCTAssertTrue(shelf.buttons["Right arrow"].isHittable)
+    }
+
+    func testShiftShortcutsReachTheTerminalOnce() {
+        terminal.tap()
+        command(#"stty -echo; printf 'shift-%s\n' ready; IFS= read -r keys; stty echo; [ "$keys" = "$(printf '\033[Z\033[1;2AYy\033[13;2u')" ] && printf 'shift-%s\n' passed"#)
+        XCTAssertTrue(screenContains("shift-ready"))
+        let base = app.scrollViews["t3rm.keyShelf"]
+        let extra = app.scrollViews["t3rm.keyShelf.extra"]
+        let shift = base.buttons["t3rm.keyShelf.shift"]
+        shift.tap()
+        base.buttons["More keys"].tap()
+        XCTAssertTrue(shift.isSelected)
+        extra.buttons["Tab"].tap()
+        XCTAssertFalse(shift.isSelected)
+        shift.tap()
+        base.buttons["Up arrow"].tap()
+        shift.tap()
+        app.typeText("yy")
+        shift.tap()
+        app.typeText("\n")
+        XCTAssertFalse(shift.isSelected)
+        app.typeText("\n")
+        XCTAssertTrue(screenContains("shift-passed"))
     }
 
     func testPullDownFromAccessoryAndTerminalDismissesKeyboardWithoutTyping() {

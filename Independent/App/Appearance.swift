@@ -10,7 +10,7 @@ enum Preferences {
     static var sizeKey: String { isPad ? "fontSizePad" : "fontSizePhone" }
     static func register() {
         defaults.register(defaults: ["fontName": "Menlo-Regular", "fontSizePhone": 13, "fontSizePad": 15,
-            "themeName": "Midnight", "keyboardAccessoryStyle": 0, "keyboardArrowsStyle": 2,
+            "themeName": "Midnight", "keyboardAccessoryStyle": 0, "keyboardArrowsStyle": 0,
             "keyboardTrackpadSensitivity": 2, "bellHUD": true, "bellVibrate": false, "bellSound": false,
             "refreshRateOnAC": 60, "refreshRateOnBattery": 60, "reduceRefreshRateInLPM": true])
         var urls = (try? FileManager.default.contentsOfDirectory(at: fontsDirectory, includingPropertiesForKeys: nil)) ?? []

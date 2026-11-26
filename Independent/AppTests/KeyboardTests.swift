@@ -57,6 +57,12 @@ final class KeyboardTests: XCTestCase {
         XCTAssertEqual(bytes(.left), Data("\u{1b}OD".utf8))
         XCTAssertEqual(bytes(.keypad(normal: "0", application: "p")), Data("\u{1b}Op".utf8))
         XCTAssertEqual(bytes(.down, [.shift,.control]), Data("\u{1b}[1;6B".utf8))
+        XCTAssertEqual(bytes(.tab, [.shift]), Data("\u{1b}[Z".utf8))
+        XCTAssertEqual(bytes(.tab), Data([9]))
+        XCTAssertEqual(bytes(.text("a"), [.shift]), Data("A".utf8))
+        XCTAssertEqual(bytes(.text("x"), [.shift, .control]), Data([24]))
+        XCTAssertEqual(bytes(.text("\n"), [.shift]), Data("\u{1b}[13;2u".utf8))
+        XCTAssertEqual(bytes(.text("\n")), Data([13]))
         XCTAssertEqual(bytes(.function(12)), Data("\u{1b}[24~".utf8))
         XCTAssertEqual(bytes(.text("c"), [.control,.alternate]), Data([27,3]))
     }

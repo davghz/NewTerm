@@ -271,6 +271,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         shelf.send = { [weak self] key in self?.send(key, []) }
         shelf.pasteAction = { [weak self] in self?.pasteContent() }
         shelf.selectionAction = { [weak self] in self?.showTranscript(search: false) }
+        shelf.heightDidChange = { [weak self] in self?.input.reloadInputViews() }
         shelf.dismissAction = { [weak self] in self?.input.resignFirstResponder() }
         model.onWriteRejected = { [weak self] in self?.onError?("The terminal input buffer is full or the session has ended.") }
         model.onChange = { [weak self] in self?.invalidate() }
