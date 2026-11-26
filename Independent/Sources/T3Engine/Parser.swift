@@ -208,7 +208,9 @@ extension TerminalEngine {
             return
         }
         stringBytes.append(byte)
-        if stringBytes.count == 10, stringBytes.elementsEqual("1337;File=".utf8) {
+        if stringBytes.count == 3, stringBytes.elementsEqual("52;".utf8) {
+            stringLimit = ((Self.clipboardLimit + 2) / 3) * 4 + 5
+        } else if stringBytes.count == 10, stringBytes.elementsEqual("1337;File=".utf8) {
             stringLimit = Self.downloadEncodedLimit + 8192
         }
     }
@@ -243,10 +245,23 @@ extension TerminalEngine {
         }
     }
 
+    private static let clipboardLimit = 100_000
     private static let downloadLimit = 1024 * 1024
     private static let downloadEncodedLimit = ((downloadLimit + 2) / 3) * 4
 
     private func finishOSC(effects: inout [TerminalEffect]) {
+        if stringBytes.starts(with: "52;".utf8) {
+            // Accept UTF-8 writes for the system clipboard. A query never reads or replies.
+            let selectors = stringBytes.dropFirst(3)
+            guard let separator = selectors.firstIndex(of: 0x3b) else { return }
+            let selection = selectors[..<separator]
+            guard selection.isEmpty || selection.elementsEqual("c".utf8),
+                  let data = Data(base64Encoded: Data(selectors[(separator + 1)...])),
+                  !data.isEmpty, data.count <= Self.clipboardLimit,
+                  let value = String(data: data, encoding: .utf8) else { return }
+            effects.append(.copyText(value))
+            return
+        }
         if stringBytes.starts(with: "1337;File=".utf8) {
             guard let colon = stringBytes.firstIndex(of: 0x3a), colon <= 8192 else { return }
             let payload = stringBytes[(colon + 1)...]

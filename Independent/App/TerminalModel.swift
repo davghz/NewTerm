@@ -26,6 +26,7 @@ final class TerminalModel {
     private let notification = DispatchSource.makeUserDataAddSource(queue: .main)
     private let effectLock = NSLock()
     private var pendingTitle: String?
+    private var pendingCopy: String?
     private var pendingDirectory: String?
     private var pendingBell = false
     private var pendingTransfer: TerminalEffect?
@@ -80,6 +81,7 @@ final class TerminalModel {
             let effects = engine.feed(bytes)
             if !effects.isEmpty {
                 var title: String?
+                var copiedText: String?
                 var directory: String?
                 var bell = false
                 var transfer: TerminalEffect?
@@ -88,6 +90,7 @@ final class TerminalModel {
                     switch effect {
                     case .reply(let response): session.write(response)
                     case .title(let value): title = value
+                    case .copyText(let value): copiedText = value
                     case .workingDirectory(let path): directory = path
                     case .bell: bell = true
                     case .uploadRequest:
@@ -97,6 +100,7 @@ final class TerminalModel {
                 }
                 effectLock.lock()
                 if let title = title { pendingTitle = title }
+                if let value = copiedText { pendingCopy = value }
                 if let directory = directory { pendingDirectory = directory }
                 pendingBell = pendingBell || bell
                 if pendingTransfer == nil { pendingTransfer = transfer }
@@ -112,16 +116,19 @@ final class TerminalModel {
     private func publish() {
         effectLock.lock()
         let title = pendingTitle
+        let copiedText = pendingCopy
         let directory = pendingDirectory
         let bell = pendingBell
         let transfer = pendingTransfer
         pendingTitle = nil
+        pendingCopy = nil
         pendingDirectory = nil
         pendingBell = false
         pendingTransfer = nil
         effectLock.unlock()
         if let directory = directory { onEffect?(.workingDirectory(directory)) }
         if let title = title { onEffect?(.title(title)) }
+        if let value = copiedText { onEffect?(.copyText(value)) }
         if bell { onEffect?(.bell) }
         if let transfer = transfer { onEffect?(transfer) }
         onChange?()
@@ -130,6 +137,8 @@ final class TerminalModel {
     private func applyBudget() {
         if engine.historyStorageBytes > historyBudget { engine.trimHistory(toBytes: historyBudget) }
     }
+
+    func foregroundCommandIs(_ name: String) -> Bool { session.foregroundCommandIs(name) }
 
     func resize(columns: Int, rows: Int) {
         queue.async { [self] in

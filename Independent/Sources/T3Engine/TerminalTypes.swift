@@ -65,6 +65,7 @@ public struct TerminalModes: Equatable {
 public enum TerminalEffect: Equatable {
     case reply(Data)
     case title(String)
+    case copyText(String)
     case bell
     case workingDirectory(String)
     case uploadRequest

@@ -136,6 +136,24 @@ final class TerminalEngineTests: XCTestCase {
         XCTAssertEqual(t.line(at: .max), [])
     }
 
+    func testClipboardWritesAcrossReadBoundariesAndSizeLimit() {
+        let value = "déjà\n世界"
+        func copy(_ selector: String, _ payload: String) -> Data {
+            Data((esc + "]52;" + selector + ";" + payload + "\u{7}").utf8)
+        }
+        let encoded = Data(value.utf8).base64EncodedString()
+        let examples = copy("c", encoded) + copy("", encoded) + copy("c", "?")
+            + copy("p", encoded) + copy("c", "//8=") + copy("c", "broken*")
+        replay(examples) { _, effects in
+            XCTAssertEqual(effects, [.copyText(value), .copyText(value)])
+        }
+        let engine = TerminalEngine(columns: 10, rows: 2)
+        let maximum = String(repeating: "a", count: 100_000)
+        XCTAssertEqual(engine.feed(copy("c", Data(maximum.utf8).base64EncodedString())), [.copyText(maximum)])
+        XCTAssertEqual(engine.feed(copy("c", Data((maximum + "b").utf8).base64EncodedString())), [])
+        XCTAssertEqual(engine.feed(copy("c", encoded)), [.copyText(value)])
+    }
+
     func testControlStringsTransferBoundsAndUnicodeSTByte() {
         let input = esc + "]2;Ü\u{07}" + esc + "Pstuff" + esc + "\\"
             + esc + "]1337;RequestUpload=format=tgz\u{07}"

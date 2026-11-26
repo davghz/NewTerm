@@ -60,6 +60,20 @@ final class TerminalSessionTests: XCTestCase {
             .first(where: { access($0, X_OK) == 0 }) ?? "missing-T3ShellLauncher"
     }
 
+    func testForegroundCommandTracksThePTYJob() throws {
+        let session = TerminalSession()
+        XCTAssertFalse(session.foregroundCommandIs("cat"))
+        let output = try start(session)
+        defer { session.close() }
+        command("exec /bin/cat", session)
+        let deadline = Date().addingTimeInterval(4)
+        while !session.foregroundCommandIs("cat") && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        XCTAssertTrue(session.foregroundCommandIs("cat"), output.text)
+        XCTAssertFalse(session.foregroundCommandIs("codex"))
+    }
+
     @discardableResult
     private func start(_ session: TerminalSession, shell: String = "/bin/sh",
                        directory: String? = "/tmp") throws -> Output {

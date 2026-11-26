@@ -134,6 +134,13 @@ final class TerminalInput: UITextView, UITextViewDelegate {
         else { onKey?(.backspace, []) }
     }
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { false }
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)) {
+            let board = UIPasteboard.general
+            return board.hasStrings || board.hasImages || board.hasURLs
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
     override func paste(_ sender: Any?) { onPaste?() }
     override func copy(_ sender: Any?) { onCopy?() }
     func textViewDidBeginEditing(_ textView: UITextView) { onFocus?(true) }

@@ -20,6 +20,7 @@ int t3_writable(int events, int master, int enabled);
 int t3_wait_event(int events, int timeout_ms);
 int t3_available(int fd);
 pid_t t3_foreground(int fd);
+int t3_foreground_command_is(int fd, const char *name);
 int t3_signal_foreground(int master, pid_t session, int signal_number);
 /* 1 reaped, 0 alive, -1 if another process handler has already reaped it. */
 int t3_reap(pid_t child, int *exit_code);

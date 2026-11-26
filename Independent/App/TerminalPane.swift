@@ -163,13 +163,19 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     private var ended = false
     private var started = false
     private var wheelDelta: CGFloat = 0
+    private var selectionMoved = false
+    private var copyDeadline: TimeInterval = -.infinity
     private var bellGeneration = 0
     private(set) var directory: String?
     var resizing = false { didSet { if !resizing { setNeedsLayout() } } }
     var active = false {
         didSet {
             canvas.active = active
-            if !active { input.resignFirstResponder() }
+            if !active {
+                selectionMoved = false
+                copyDeadline = -.infinity
+                input.resignFirstResponder()
+            }
         }
     }
     var inForeground = true { didSet { updateVisibility() } }
@@ -458,7 +464,16 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     }
     private func send(_ key: TerminalKey, _ flags: UIKeyModifierFlags) {
         following = true
-        model.send { [modifiers = flags.union(shelf.consume())] modes in key.bytes(modes: modes, modifiers: modifiers) }
+        let modifiers = flags.union(shelf.consume())
+        if case .text(let value) = key, modifiers.intersection([.alternate, .shift, .command]).isEmpty,
+           value == "\u{16}" || (modifiers.contains(.control) && value.lowercased() == "v"),
+           model.foregroundCommandIs("codex"), let content = TerminalPaste.read(from: .general) {
+            // The local Codex port accepts an image path as a bracketed paste. Its Ctrl+V
+            // handler attempts a native clipboard read that is unavailable on iOS.
+            paste(content)
+            return
+        }
+        model.send { modes in key.bytes(modes: modes, modifiers: modifiers) }
         invalidate()
     }
     func insertCommand(_ text: String) {
@@ -477,9 +492,17 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     }
 
     func pasteContent() {
-        let board = UIPasteboard.general
-        if let text = board.string { pasteText(text); return }
-        guard let image = board.image else { return }
+        if let content = TerminalPaste.read(from: .general) { paste(content) }
+    }
+
+    private func paste(_ content: TerminalPaste) {
+        switch content {
+        case .text(let text): pasteText(text)
+        case .image(let image): pasteImage(image)
+        }
+    }
+
+    private func pasteImage(_ image: UIImage) {
         let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pastes", isDirectory: true)
         let url = directory.appendingPathComponent(UUID().uuidString + ".png")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -509,6 +532,11 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         case .title(let title):
             let safe = String(title.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(80))
             if !safe.isEmpty { onTitle?(safe) }
+        case .copyText(let value):
+            guard active, visible, window?.windowScene?.activationState == .foregroundActive,
+                  ProcessInfo.processInfo.systemUptime <= copyDeadline else { return }
+            copyDeadline = -.infinity
+            UIPasteboard.general.string = value
         case .workingDirectory(let value):
             var path = value
             if let url = URL(string: value), url.isFileURL {
@@ -584,6 +612,17 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     }
     private func sendMouse(point: CGPoint, button: Int, release: Bool, motion: Bool, modifiers: UIKeyModifierFlags) {
         guard let frame = canvas.frameData else { return }
+        if button == 0 {
+            // Codex writes the selected text using OSC 52 immediately after the release.
+            // Give one deliberate primary-button drag one opportunity to update the clipboard.
+            if release {
+                if selectionMoved { copyDeadline = ProcessInfo.processInfo.systemUptime + 2 }
+                selectionMoved = false
+            } else {
+                selectionMoved = motion
+                if !motion { copyDeadline = -.infinity }
+            }
+        }
         let addr = canvas.address(point)
         let x = min(columns, max(1, addr.column + 1))
         let y = min(rowCount, max(1, addr.line - frame.first - frame.history + 1))

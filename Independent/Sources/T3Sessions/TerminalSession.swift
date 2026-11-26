@@ -93,6 +93,10 @@ public final class TerminalSession {
         return current
     }
 
+    public func foregroundCommandIs(_ name: String) -> Bool {
+        worker?.foregroundCommandIs(name) ?? false
+    }
+
     public func write(_ data: Data) { _ = tryWrite(data) }
 
     /// Accepts the entire input or returns false if the session is closing or
@@ -149,6 +153,12 @@ private final class SessionWorker {
             Thread.current.name = "T3RM terminal"
             self.run()
         }
+    }
+
+    func foregroundCommandIs(_ name: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !finished && !closing && t3_foreground_command_is(terminal.master, name) != 0
     }
 
     func enqueue(_ data: Data) -> Bool {

@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <sys/event.h>
 #include <sys/ioctl.h>
+#include <sys/sysctl.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <termios.h>
@@ -71,6 +73,16 @@ int t3_available(int fd) {
 pid_t t3_foreground(int fd) {
     pid_t group;
     return ioctl(fd, TIOCGPGRP, &group) < 0 ? -1 : group;
+}
+
+int t3_foreground_command_is(int fd, const char *name) {
+    pid_t group = t3_foreground(fd);
+    if (group <= 1) return 0;
+    int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, group };
+    struct kinfo_proc process = {0};
+    size_t length = sizeof(process);
+    return sysctl(mib, 4, &process, &length, NULL, 0) == 0 && length == sizeof(process)
+        && strcmp(process.kp_proc.p_comm, name) == 0;
 }
 
 /* The PTY driver signals its current foreground pgrp under its tty lock. A
