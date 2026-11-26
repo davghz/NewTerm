@@ -22,7 +22,7 @@ private final class MouseGesture: UIGestureRecognizer {
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { touchesEnded(touches, with: event) }
 }
 
-final class TerminalPane: UIView, UIScrollViewDelegate {
+final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     let model = TerminalModel()
     let canvas = TerminalCanvas()
     let input = TerminalInput()
@@ -30,6 +30,8 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
     private let scroll = UIScrollView()
     private let status = UILabel()
     private let mouse = MouseGesture()
+    private let keyboardPull = UIPanGestureRecognizer()
+    private var keyboardTopAtDragStart: CGFloat?
     private var trackpad: UIPanGestureRecognizer!
     private var pointerHover: UIHoverGestureRecognizer!
     private var wheel: UIPanGestureRecognizer!
@@ -112,6 +114,11 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
         trackpad.maximumNumberOfTouches = 2
         scroll.panGestureRecognizer.maximumNumberOfTouches = 1
         scroll.addGestureRecognizer(trackpad)
+        keyboardPull.addTarget(self, action: #selector(pullAcrossKeyboard(_:)))
+        keyboardPull.maximumNumberOfTouches = 1
+        keyboardPull.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        keyboardPull.delegate = self
+        scroll.addGestureRecognizer(keyboardPull)
         canvas.activate = { [weak self] in self?.focus() }
         input.onKey = { [weak self] key, flags in self?.send(key, flags) }
         input.onPaste = { [weak self] in self?.pasteContent() }
@@ -278,6 +285,36 @@ final class TerminalPane: UIView, UIScrollViewDelegate {
         following = scrollView.contentOffset.y >= scrollView.contentSize.height - scrollView.bounds.height - 0.5
         generation += 1
         invalidate()
+    }
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === keyboardPull else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        let delta = keyboardPull.translation(in: self)
+        return input.isFirstResponder && !mouse.isEnabled && delta.y > abs(delta.x)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        other === scroll.panGestureRecognizer
+    }
+
+    // The scroll view alone may never begin dragging when the terminal has no scrollback.
+    @objc private func pullAcrossKeyboard(_ pan: UIPanGestureRecognizer) {
+        guard let root = window?.rootViewController?.view else { return }
+        let finger = pan.location(in: root)
+        let delta = pan.translation(in: root)
+        switch pan.state {
+        case .began:
+            let top = root.keyboardLayoutGuide.layoutFrame.minY
+            let start = finger.y - delta.y
+            keyboardTopAtDragStart = start < top && top < root.safeAreaLayoutGuide.layoutFrame.maxY ? top : nil
+        case .ended:
+            if let top = keyboardTopAtDragStart, finger.y >= top + 16, delta.y >= 32, delta.y > abs(delta.x) {
+                input.resignFirstResponder()
+            }
+            keyboardTopAtDragStart = nil
+        case .cancelled, .failed: keyboardTopAtDragStart = nil
+        default: break
+        }
     }
 
     @objc func focus() {
