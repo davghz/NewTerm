@@ -271,8 +271,8 @@ final class KeyShelf: UIInputView, UIGestureRecognizerDelegate {
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === dismissPan else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
-        let movement = dismissPan.translation(in: self)
-        return movement.y > abs(movement.x)
+        let velocity = dismissPan.velocity(in: self)
+        return velocity.y > abs(velocity.x)
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {

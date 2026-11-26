@@ -289,8 +289,17 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === keyboardPull else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
-        let delta = keyboardPull.translation(in: self)
-        return input.isFirstResponder && !mouse.isEnabled && delta.y > abs(delta.x)
+        let velocity = keyboardPull.velocity(in: self)
+        return velocity.y > abs(velocity.x)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === keyboardPull, input.isFirstResponder, !mouse.isEnabled,
+              let root = window?.rootViewController?.view else { return false }
+        let top = root.keyboardLayoutGuide.layoutFrame.minY
+        guard top < root.safeAreaLayoutGuide.layoutFrame.maxY, touch.location(in: root).y < top else { return false }
+        keyboardTopAtDragStart = top
+        return true
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
@@ -299,21 +308,12 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
 
     // The scroll view alone may never begin dragging when the terminal has no scrollback.
     @objc private func pullAcrossKeyboard(_ pan: UIPanGestureRecognizer) {
-        guard let root = window?.rootViewController?.view else { return }
+        guard pan.state == .ended, let top = keyboardTopAtDragStart,
+              let root = window?.rootViewController?.view else { return }
         let finger = pan.location(in: root)
         let delta = pan.translation(in: root)
-        switch pan.state {
-        case .began:
-            let top = root.keyboardLayoutGuide.layoutFrame.minY
-            let start = finger.y - delta.y
-            keyboardTopAtDragStart = start < top && top < root.safeAreaLayoutGuide.layoutFrame.maxY ? top : nil
-        case .ended:
-            if let top = keyboardTopAtDragStart, finger.y >= top + 16, delta.y >= 32, delta.y > abs(delta.x) {
-                input.resignFirstResponder()
-            }
-            keyboardTopAtDragStart = nil
-        case .cancelled, .failed: keyboardTopAtDragStart = nil
-        default: break
+        if finger.y >= top + 16, delta.y >= 32, delta.y > abs(delta.x) {
+            input.resignFirstResponder()
         }
     }
 
