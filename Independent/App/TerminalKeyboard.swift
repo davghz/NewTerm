@@ -282,9 +282,9 @@ final class KeyShelf: UIInputView {
         for button in controls.arrangedSubviews { button.removeFromSuperview() }
         modifierButtons.removeAll()
         pageButtons.removeAll()
-        controls.addArrangedSubview(character("esc", .escape, label: "Escape", symbol: "escape"))
+        controls.addArrangedSubview(character("esc", .escape, label: "Escape", symbol: "escape", primary: true))
         for (title, symbol, flag) in [("ctrl", "control", UIKeyModifierFlags.control), ("alt", "option", .alternate)] {
-            let button = makeButton(title, symbol: symbol) { [weak self] in
+            let button = makeButton(title, symbol: symbol, primary: true) { [weak self] in
                 guard let self = self else { return }
                 self.modifiers.formSymmetricDifference(flag)
                 self.updateSelection()
@@ -294,7 +294,7 @@ final class KeyShelf: UIInputView {
         }
         for (title, label, symbol, next) in [("fn", "Function keys", "function", Page.function),
                                              ("…", "More keys", "ellipsis", .more)] {
-            let button = makeButton(title, label: label, symbol: symbol) { [weak self] in
+            let button = makeButton(title, label: label, symbol: symbol, primary: true) { [weak self] in
                 guard let self = self else { return }
                 self.page = self.page == next ? .navigation : next
                 self.showPage()
@@ -312,7 +312,8 @@ final class KeyShelf: UIInputView {
     }
 
     private func makeButton(_ title: String, label: String? = nil, symbol: String? = nil,
-                            compact: Bool = false, action: @escaping () -> Void) -> UIButton {
+                            primary: Bool = false, compact: Bool = false, identifier: String? = nil,
+                            action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .custom)
         let font = UIFont.monospacedSystemFont(ofSize: compact ? 11 : 13, weight: .semibold)
         var config = UIButton.Configuration.plain()
@@ -341,16 +342,18 @@ final class KeyShelf: UIInputView {
             key.configuration = style
         }
         button.accessibilityLabel = label ?? title
+        button.accessibilityIdentifier = identifier
         button.addAction(UIAction { _ in action() }, for: .touchUpInside)
-        let minimum: CGFloat = Preferences.isPad ? 46 : 44
+        let phoneMinimum: CGFloat = primary ? 34 : 44
+        let minimum: CGFloat = Preferences.isPad ? 46 : phoneMinimum
         let legendWidth = config.image == nil ? (title as NSString).size(withAttributes: [.font: font]).width : 0
         button.widthAnchor.constraint(equalToConstant: max(minimum, ceil(legendWidth) + 10)).isActive = true
         return button
     }
 
     private func character(_ title: String, _ key: TerminalKey, label: String? = nil,
-                           symbol: String? = nil, compact: Bool = false) -> UIButton {
-        makeButton(title, label: label, symbol: symbol, compact: compact) { [weak self] in self?.send?(key) }
+                           symbol: String? = nil, primary: Bool = false, compact: Bool = false) -> UIButton {
+        makeButton(title, label: label, symbol: symbol, primary: primary, compact: compact) { [weak self] in self?.send?(key) }
     }
 
     private func showPage() {
@@ -361,7 +364,7 @@ final class KeyShelf: UIInputView {
         preferredWidth.isActive = true
         switch page {
         case .navigation:
-            keys.addArrangedSubview(character("⇥", .tab, label: "Tab", symbol: "arrow.right.to.line"))
+            keys.addArrangedSubview(character("⇥", .tab, label: "Tab", symbol: "arrow.right.to.line", primary: true))
             addArrows()
             fallthrough
         case .more:
@@ -370,9 +373,9 @@ final class KeyShelf: UIInputView {
                 keys.addArrangedSubview(character(title, key))
             }
             for symbol in ["/", "|", "~", "-", "_", "\\", "`"] { keys.addArrangedSubview(character(symbol, .text(symbol))) }
-            keys.addArrangedSubview(makeButton("Paste") { [weak self] in self?.pasteAction?() })
-            keys.addArrangedSubview(makeButton("Select") { [weak self] in self?.selectionAction?() })
-            keys.addArrangedSubview(makeButton("Hide") { [weak self] in self?.dismissAction?() })
+            keys.addArrangedSubview(makeButton("Paste", identifier: "t3rm.keyShelf.paste") { [weak self] in self?.pasteAction?() })
+            keys.addArrangedSubview(makeButton("Select", identifier: "t3rm.keyShelf.select") { [weak self] in self?.selectionAction?() })
+            keys.addArrangedSubview(makeButton("Hide", identifier: "t3rm.keyShelf.hide") { [weak self] in self?.dismissAction?() })
         case .function:
             for n in 1...12 { keys.addArrangedSubview(character("F\(n)", .function(n))) }
         }
@@ -384,11 +387,11 @@ final class KeyShelf: UIInputView {
     private func addArrows() {
         let style = Preferences.defaults.integer(forKey: "keyboardArrowsStyle")
         let vim = style == 3 || style == 4
-        let left = character(vim ? "h" : "←", .left, label: "Left arrow", symbol: vim ? nil : "arrow.left")
-        let right = character(vim ? "l" : "→", .right, label: "Right arrow", symbol: vim ? nil : "arrow.right")
+        let left = character(vim ? "h" : "←", .left, label: "Left arrow", symbol: vim ? nil : "arrow.left", primary: true)
+        let right = character(vim ? "l" : "→", .right, label: "Right arrow", symbol: vim ? nil : "arrow.right", primary: true)
         let paired = style == 0 || style == 1
-        let up = character(vim ? "k" : "↑", .up, label: "Up arrow", symbol: vim ? nil : "arrow.up", compact: paired)
-        let down = character(vim ? "j" : "↓", .down, label: "Down arrow", symbol: vim ? nil : "arrow.down", compact: paired)
+        let up = character(vim ? "k" : "↑", .up, label: "Up arrow", symbol: vim ? nil : "arrow.up", primary: true, compact: paired)
+        let down = character(vim ? "j" : "↓", .down, label: "Down arrow", symbol: vim ? nil : "arrow.down", primary: true, compact: paired)
         keys.addArrangedSubview(left)
         if paired {
             let middle = UIStackView(arrangedSubviews: [up, down])

@@ -54,7 +54,9 @@ final class InteractionTests: XCTestCase {
         terminal.tap()
         app.typeText("printf '%s%s\\n' pasted- ")
         app.buttons["t3rm.actions"].tap()
-        app.buttons["Paste"].tap()
+        let menuPaste = app.buttons.matching(NSPredicate(format: "label == 'Paste' AND identifier != 't3rm.keyShelf.paste'")).firstMatch
+        XCTAssertTrue(menuPaste.isHittable)
+        menuPaste.tap()
         app.typeText("\n")
         XCTAssertTrue(screenContains("pasted-copy-proof"))
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -203,6 +205,12 @@ final class InteractionTests: XCTestCase {
         terminal.tap()
         let shelf = app.scrollViews["t3rm.keyShelf"]
         XCTAssertTrue(shelf.waitForExistence(timeout: 5))
+        if UIDevice.current.userInterfaceIdiom == .phone && app.frame.width >= 375 {
+            for label in ["Up arrow", "Down arrow", "Left arrow", "Right arrow"] {
+                let arrow = shelf.buttons[label]
+                XCTAssertTrue(arrow.isHittable && shelf.frame.contains(arrow.frame), label)
+            }
+        }
         let left = shelf.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
         let right = shelf.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
         func reveal(_ label: String, swipeLeft: Bool) {
@@ -216,7 +224,7 @@ final class InteractionTests: XCTestCase {
         }
         let ctrl = shelf.buttons["ctrl"]
         ctrl.tap()
-        reveal("Hide", swipeLeft: true)
+        reveal("t3rm.keyShelf.hide", swipeLeft: true)
         reveal("ctrl", swipeLeft: false)
         XCTAssertTrue(ctrl.isSelected, "Dragging across keys consumed Ctrl")
         ctrl.tap()
@@ -225,7 +233,7 @@ final class InteractionTests: XCTestCase {
         reveal("F12", swipeLeft: true)
         reveal("More keys", swipeLeft: false)
         shelf.buttons["More keys"].tap()
-        reveal("Paste", swipeLeft: true)
+        reveal("t3rm.keyShelf.paste", swipeLeft: true)
     }
 
     func testShellTransferPromptsAndUploadCancellation() {
