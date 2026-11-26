@@ -90,6 +90,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         status.isHidden = true
         addSubview(status)
         tap = UITapGestureRecognizer(target: self, action: #selector(focus))
+        tap.delegate = self
         scroll.addGestureRecognizer(tap)
         touchSelection = UILongPressGestureRecognizer(target: self, action: #selector(selectAt(_:)))
         scroll.addGestureRecognizer(touchSelection)
@@ -294,6 +295,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if gestureRecognizer === tap { return true }
         guard gestureRecognizer === keyboardPull, input.isFirstResponder, !mouse.isEnabled,
               let root = window?.rootViewController?.view else { return false }
         let top = root.keyboardLayoutGuide.layoutFrame.minY
@@ -303,7 +305,9 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-        other === scroll.panGestureRecognizer
+        // After a resize the scroll view can begin its pan on a stationary touch in scrollback.
+        // Let the focus tap finish its own movement check when the keyboard is hidden.
+        other === scroll.panGestureRecognizer && (gestureRecognizer === keyboardPull || !input.isFirstResponder)
     }
 
     // The scroll view alone may never begin dragging when the terminal has no scrollback.
