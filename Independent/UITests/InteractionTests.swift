@@ -460,7 +460,7 @@ final class InteractionTests: XCTestCase {
         let payload = Data(sample.utf8).base64EncodedString()
         command([
             #"stty -echo -icanon; printf '\033[?1002h\033[?1006hselect-%s\n' ready"#,
-            #"while [ "$(dd bs=1 count=1 2>/dev/null)" != m ]; do :; done"#,
+            #"IFS= read -r -d m events"#,
             #"printf '\033[?1002l\033[?1006l\033]52;c;%s\007' '"# + payload + "'",
             #"stty icanon; printf 'paste-%s\n' ready; IFS= read -r pasted; stty echo"#,
             #"printf 'received-%s\n' "$pasted""#
