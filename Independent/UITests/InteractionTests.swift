@@ -161,15 +161,14 @@ final class InteractionTests: XCTestCase {
         terminal.tap()
         command("uname -sm")
         XCTAssertTrue(screenContains("Darwin"))
-        let right = app.buttons["Right arrow"]
-        XCTAssertTrue(right.isHittable)
-        XCTAssertLessThanOrEqual(right.frame.maxX, app.frame.maxX)
+        let escape = app.buttons["Escape"]
+        XCTAssertTrue(escape.isHittable)
         let function = app.buttons["Function keys"]
         function.tap()
         XCTAssertTrue(app.buttons["F1"].isHittable)
         XCTAssertTrue(function.isSelected)
         function.tap()
-        XCTAssertTrue(right.isHittable)
+        XCTAssertTrue(escape.isHittable)
         attachScreen("Session tabs and terminal keys")
 
         openSettings()
@@ -183,11 +182,11 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(screenContains(other, in: preview))
         let keyboard = app.keyboards.firstMatch
         XCTAssertFalse(keyboard.exists && keyboard.isHittable)
-        XCTAssertFalse(right.exists && right.isHittable)
+        XCTAssertFalse(escape.exists && escape.isHittable)
         app.buttons["Done"].tap()
         XCTAssertTrue(active.isSelected)
         let shelfReturned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            right.exists && right.isHittable
+            escape.exists && escape.isHittable
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [shelfReturned], timeout: 5), .completed)
         command("printf '%s%s\\n' focus- restored")
@@ -198,6 +197,35 @@ final class InteractionTests: XCTestCase {
         app.staticTexts["Color Theme"].tap()
         app.staticTexts[original].tap()
         XCTAssertTrue(screenContains(original, in: preview))
+    }
+
+    func testSwipeAccessoryKeysFromAButton() {
+        terminal.tap()
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        XCTAssertTrue(shelf.waitForExistence(timeout: 5))
+        let left = shelf.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+        let right = shelf.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+        func reveal(_ label: String, swipeLeft: Bool) {
+            let button = shelf.buttons[label]
+            for _ in 0..<7 {
+                if button.exists && shelf.frame.contains(button.frame) && button.isHittable { return }
+                let start = swipeLeft ? right : left
+                start.press(forDuration: 0.1, thenDragTo: swipeLeft ? left : right)
+            }
+            XCTFail("Could not reveal \(label) on the keyboard shelf")
+        }
+        let ctrl = shelf.buttons["ctrl"]
+        ctrl.tap()
+        reveal("Hide", swipeLeft: true)
+        reveal("ctrl", swipeLeft: false)
+        XCTAssertTrue(ctrl.isSelected, "Dragging across keys consumed Ctrl")
+        ctrl.tap()
+        let function = shelf.buttons["Function keys"]
+        function.tap()
+        reveal("F12", swipeLeft: true)
+        reveal("More keys", swipeLeft: false)
+        shelf.buttons["More keys"].tap()
+        reveal("Paste", swipeLeft: true)
     }
 
     func testShellTransferPromptsAndUploadCancellation() {

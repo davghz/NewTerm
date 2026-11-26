@@ -192,6 +192,13 @@ final class TerminalInput: UITextView, UITextViewDelegate {
     }
 }
 
+private final class KeyShelfScrollView: UIScrollView {
+    override func touchesShouldCancel(in view: UIView) -> Bool {
+        // Allow a drag that starts on a key to scroll before the key fires on release.
+        view is UIControl || super.touchesShouldCancel(in: view)
+    }
+}
+
 final class KeyShelf: UIInputView {
     var send: ((TerminalKey) -> Void)?
     var pasteAction: (() -> Void)?
@@ -205,7 +212,7 @@ final class KeyShelf: UIInputView {
     private var pageButtons: [(Page, UIButton)] = []
     private let controls = UIStackView()
     private let keys = UIStackView()
-    private let scroll = UIScrollView()
+    private let scroll = KeyShelfScrollView()
     private let separator = UIView()
     private let edge = UIView()
     private var chrome = TerminalChrome.current
@@ -214,36 +221,39 @@ final class KeyShelf: UIInputView {
     init() {
         super.init(frame: CGRect(x: 0, y: 0, width: 375, height: 46), inputViewStyle: .keyboard)
         autoresizingMask = [.flexibleWidth]
-        // Keep escape, modifiers and page switches within reach as the extra keys scroll.
-        for item in [controls, separator, scroll, edge] {
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scroll)
+        for item in [controls, separator, keys] {
             item.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(item)
+            scroll.addSubview(item)
         }
-        keys.translatesAutoresizingMaskIntoConstraints = false
-        scroll.addSubview(keys)
+        edge.translatesAutoresizingMaskIntoConstraints = false
+        edge.isUserInteractionEnabled = false
+        addSubview(edge)
+        scroll.accessibilityIdentifier = "t3rm.keyShelf"
         scroll.delaysContentTouches = false
         scroll.isDirectionalLockEnabled = true
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.showsVerticalScrollIndicator = false
         let pixel = 1 / UIScreen.main.scale
         NSLayoutConstraint.activate([
-            controls.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
-            controls.topAnchor.constraint(equalTo: topAnchor),
-            controls.bottomAnchor.constraint(equalTo: bottomAnchor),
-            separator.leadingAnchor.constraint(equalTo: controls.trailingAnchor, constant: 5),
-            separator.centerYAnchor.constraint(equalTo: centerYAnchor),
-            separator.widthAnchor.constraint(equalToConstant: pixel),
-            separator.heightAnchor.constraint(equalToConstant: 20),
-            scroll.leadingAnchor.constraint(equalTo: separator.trailingAnchor, constant: 5),
+            scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
             scroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
             scroll.topAnchor.constraint(equalTo: topAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            keys.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            scroll.contentLayoutGuide.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+            scroll.contentLayoutGuide.widthAnchor.constraint(greaterThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor),
+            controls.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            controls.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            controls.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            separator.leadingAnchor.constraint(equalTo: controls.trailingAnchor, constant: 5),
+            separator.centerYAnchor.constraint(equalTo: controls.centerYAnchor),
+            separator.widthAnchor.constraint(equalToConstant: pixel),
+            separator.heightAnchor.constraint(equalToConstant: 20),
+            keys.leadingAnchor.constraint(equalTo: separator.trailingAnchor, constant: 5),
             keys.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
             keys.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             keys.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            keys.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
-            keys.widthAnchor.constraint(greaterThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor),
             edge.leadingAnchor.constraint(equalTo: leadingAnchor),
             edge.trailingAnchor.constraint(equalTo: trailingAnchor),
             edge.topAnchor.constraint(equalTo: topAnchor),
@@ -332,7 +342,7 @@ final class KeyShelf: UIInputView {
         }
         button.accessibilityLabel = label ?? title
         button.addAction(UIAction { _ in action() }, for: .touchUpInside)
-        let minimum: CGFloat = Preferences.isPad ? 46 : 34
+        let minimum: CGFloat = Preferences.isPad ? 46 : 44
         let legendWidth = config.image == nil ? (title as NSString).size(withAttributes: [.font: font]).width : 0
         button.widthAnchor.constraint(equalToConstant: max(minimum, ceil(legendWidth) + 10)).isActive = true
         return button
@@ -351,12 +361,9 @@ final class KeyShelf: UIInputView {
         preferredWidth.isActive = true
         switch page {
         case .navigation:
-            keys.addArrangedSubview(spacer)
             keys.addArrangedSubview(character("⇥", .tab, label: "Tab", symbol: "arrow.right.to.line"))
             addArrows()
-        case .function:
-            for n in 1...12 { keys.addArrangedSubview(character("F\(n)", .function(n))) }
-            keys.addArrangedSubview(spacer)
+            fallthrough
         case .more:
             for (title, key) in [("Home", TerminalKey.home), ("End", .end), ("PgUp", .pageUp),
                                  ("PgDn", .pageDown), ("Ins", .insert), ("Del", .delete)] {
@@ -366,10 +373,11 @@ final class KeyShelf: UIInputView {
             keys.addArrangedSubview(makeButton("Paste") { [weak self] in self?.pasteAction?() })
             keys.addArrangedSubview(makeButton("Select") { [weak self] in self?.selectionAction?() })
             keys.addArrangedSubview(makeButton("Hide") { [weak self] in self?.dismissAction?() })
-            keys.addArrangedSubview(spacer)
+        case .function:
+            for n in 1...12 { keys.addArrangedSubview(character("F\(n)", .function(n))) }
         }
+        keys.addArrangedSubview(spacer)
         updateSelection()
-        scroll.showsHorizontalScrollIndicator = page != .navigation
         scroll.setContentOffset(.zero, animated: false)
     }
 
