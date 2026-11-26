@@ -4,22 +4,84 @@ import T3Engine
 
 private final class MouseGesture: UIGestureRecognizer {
     var report: ((CGPoint, Int, Bool, Bool, UIKeyModifierFlags) -> Void)?
+    var shouldFocusOnTap: (() -> Bool)?
+    var focusOnTap: (() -> Void)?
+    private var contact: UITouch?
     private var button = 0
+    private var pressOrigin = CGPoint.zero
+    private var startInWindow = CGPoint.zero
+    private var pressFlags: UIKeyModifierFlags = []
+    private var sentPress = false
+    private var hold: DispatchWorkItem?
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard let touch = touches.first, touches.count == 1 else { state = .failed; return }
+        if contact != nil {
+            for touch in touches { ignore(touch, for: event) }
+            return
+        }
+        guard touches.count == 1, let touch = touches.first else { state = .failed; return }
+        contact = touch
         button = event.buttonMask.contains(.secondary) ? 2 : event.buttonMask.contains(UIEvent.ButtonMask(rawValue: 4)) ? 1 : 0
+        pressOrigin = touch.location(in: view)
+        startInWindow = touch.location(in: nil)
+        pressFlags = event.modifierFlags
         state = .began
-        report?(touch.location(in: view), button, false, false, event.modifierFlags)
+        if touch.type == .direct && shouldFocusOnTap?() == true {
+            // Give a short, stationary finger tap to the keyboard. A hold or drag still goes to the application.
+            let work = DispatchWorkItem { [weak self] in self?.sendPress() }
+            hold = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+        } else {
+            sendPress()
+        }
     }
+
+    private func sendPress() {
+        guard !sentPress, contact != nil else { return }
+        hold?.cancel()
+        hold = nil
+        sentPress = true
+        report?(pressOrigin, button, false, false, pressFlags)
+    }
+
+    private func movedFromStart(_ touch: UITouch) -> Bool {
+        let position = touch.location(in: nil)
+        return hypot(position.x - startInWindow.x, position.y - startInWindow.y) >= 10
+    }
+
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        if let touch = touches.first { report?(touch.location(in: view), button, false, true, event.modifierFlags) }
+        guard let touch = contact, touches.contains(touch), sentPress || movedFromStart(touch) else { return }
+        sendPress()
+        report?(touch.location(in: view), button, false, true, event.modifierFlags)
         state = .changed
     }
+
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        if let touch = touches.first { report?(touch.location(in: view), button, true, false, event.modifierFlags) }
+        guard let touch = contact, touches.contains(touch) else { return }
+        if sentPress || movedFromStart(touch) {
+            sendPress()
+            report?(touch.location(in: view), button, true, false, event.modifierFlags)
+        } else {
+            hold?.cancel()
+            focusOnTap?()
+        }
         state = .ended
     }
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { touchesEnded(touches, with: event) }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = contact, touches.contains(touch) else { return }
+        hold?.cancel()
+        if sentPress { report?(touch.location(in: view), button, true, false, event.modifierFlags) }
+        state = .cancelled
+    }
+
+    override func reset() {
+        hold?.cancel()
+        hold = nil
+        contact = nil
+        sentPress = false
+        super.reset()
+    }
 }
 
 final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
@@ -95,6 +157,11 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         touchSelection = UILongPressGestureRecognizer(target: self, action: #selector(selectAt(_:)))
         scroll.addGestureRecognizer(touchSelection)
         tap.require(toFail: touchSelection)
+        mouse.shouldFocusOnTap = { [weak self] in
+            guard let self = self, !self.input.isFirstResponder, let root = self.window?.rootViewController?.view else { return false }
+            return root.keyboardLayoutGuide.layoutFrame.minY >= root.safeAreaLayoutGuide.layoutFrame.maxY - 1
+        }
+        mouse.focusOnTap = { [weak self] in self?.focus() }
         mouse.report = { [weak self] point, button, release, motion, modifiers in
             guard let self = self else { return }
             self.onActivate?()
