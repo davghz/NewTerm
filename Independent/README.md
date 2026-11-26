@@ -18,7 +18,13 @@ The review package has its own app identifier, preferences, and SSH URL scheme. 
 
 ## Use
 
-Tap the terminal to type. Use **+** for another shell and the magnifying glass to find text. Open **…** for **Split Pane** or **Settings** on a narrow screen. Wider windows show these controls directly. Long-press terminal text for selection and copying. The keyboard toolbar provides modifiers, arrow keys, paste, and function keys. Swipe left along the toolbar to reach the extra keys. To hide the keyboard, swipe down from the toolbar or drag from the terminal text down across the Esc/Ctrl row. Both gestures work in Codex. Tap the transcript or message box once to bring the keyboard back. In programs that use the mouse, subsequent taps go to the program. You can also choose **… → Show Keyboard**. Settings previews the selected theme and font and supports importing fonts.
+Tap the terminal to type. Use **+** for another shell and the magnifying glass to find text. Open **…** for **Split Pane** or **Settings** on a narrow screen. Wider windows show these controls directly. Settings previews the selected theme and font and supports importing fonts.
+
+Swipe up or down in Codex to scroll the conversation. To select text, hold one finger still for about a second, then drag and lift to copy. In a regular shell, the same hold opens transcript selection.
+
+The keyboard toolbar keeps Ctrl, Esc, Shift, More and the four arrows within reach. Tap **More** for Tab, Paste and navigation keys. Swipe the upper row sideways to reach Alt, Fn and additional keys. Shift applies to the next keystroke. For example, tap **Shift**, then **Tab** in the upper row to send Shift+Tab. To hide the keyboard, swipe down from the toolbar or drag from the transcript onto the keyboard. Tap the transcript or message box once to bring it back.
+
+In the local Codex CLI, use **More → Paste** or **Ctrl+V** to paste text into the draft or attach a copied image. With the keyboard hidden, use **… → Paste**.
 
 The app starts the current account's local shell. OpenCode, Codex and Claude Code use their own installed CLI packages. Session history belongs to the terminal process and can be lost when iOS terminates the app. The app processes hidden tabs while iOS allows it to run.
 
