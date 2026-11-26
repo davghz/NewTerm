@@ -68,10 +68,13 @@ private final class MouseGesture: UIGestureRecognizer {
         let dy = position.y - startInWindow.y
         guard sentPress || !pendingMotion.isEmpty || hypot(dx, dy) >= 10 else { return }
         if keyboardTop != nil, dy > abs(dx) {
-            // A downward drag may still cross onto the keyboard. Keep its full mouse path
-            // for applications that use drags ending inside the terminal to select text.
+            // A downward drag may still cross onto the keyboard. Keep an ordered path
+            // for terminal selection, thinning long drags to bound the work on release.
             hold?.cancel()
             hold = nil
+            if pendingMotion.count == 64 {
+                pendingMotion = stride(from: 0, to: pendingMotion.count, by: 2).map { pendingMotion[$0] }
+            }
             pendingMotion.append((touch.location(in: view), event.modifierFlags))
             state = .changed
             return
@@ -204,7 +207,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         mouse.dismissKeyboard = { [weak self] in self?.input.resignFirstResponder() }
         mouse.report = { [weak self] point, button, release, motion, modifiers in
             guard let self = self else { return }
-            self.onActivate?()
+            if !self.active { self.onActivate?() }
             self.sendMouse(point: point, button: button, release: release, motion: motion, modifiers: modifiers)
         }
         mouse.isEnabled = false
