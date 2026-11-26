@@ -18,7 +18,7 @@ The review package has its own app identifier, preferences, and SSH URL scheme. 
 
 ## Use
 
-Tap the terminal to type. Use **+** for another shell and the magnifying glass to find text. Open **…** for **Split Pane** or **Settings** on a narrow screen. Wider windows show these controls directly. Long-press terminal text for selection and copying. The keyboard toolbar provides modifiers, arrow keys, paste, and function keys. Terminal applications receive mouse input when they request it. Settings previews the selected theme and font and supports importing fonts.
+Tap the terminal to type. Use **+** for another shell and the magnifying glass to find text. Open **…** for **Split Pane** or **Settings** on a narrow screen. Wider windows show these controls directly. Long-press terminal text for selection and copying. The keyboard toolbar provides modifiers, arrow keys, paste, and function keys. Swipe left along the toolbar to reach the extra keys. Swipe down from a toolbar key to hide the keyboard, then tap the terminal to show it again. Terminal applications receive mouse input when they request it. Settings previews the selected theme and font and supports importing fonts.
 
 The app starts the current account's local shell. OpenCode, Codex and Claude Code use their own installed CLI packages. Session history belongs to the terminal process and can be lost when iOS terminates the app. The app processes hidden tabs while iOS allows it to run.
 
