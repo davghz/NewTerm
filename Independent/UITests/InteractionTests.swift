@@ -349,6 +349,49 @@ final class InteractionTests: XCTestCase {
         XCTAssertNotNil(output.range(of: packets, options: .regularExpression), "Unexpected terminal input: \(output)")
     }
 
+    func testPullFromMouseReportingTerminalAcrossKeyboardPreservesDraft() {
+        terminal.tap()
+        let keyboard = app.keyboards.firstMatch
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+
+        // Button-motion mode reports selection drags as well as their press and release.
+        command([
+            #"stty -echo; printf '\033[?1002h\033[?1006hpull-%s\n' ready"#,
+            #"IFS= read -r draft; [ "$draft" = draftok ] && printf 'draft-%s\n' intact"#,
+            #"IFS= read -r wire; printf '\033[?1002l\033[?1006l'; stty echo"#,
+            #"printf %s "$wire" | tr '\033' '\n' | awk -F';' 'NF == 3 {print $1 substr($3,length($3))}' | uniq"#,
+            #"printf 'drag-%s\n' done"#
+        ].joined(separator: "; "))
+        XCTAssertTrue(screenContains("pull-ready"))
+        app.typeText("draft")
+
+        let initialHeight = terminal.frame.height
+        let start = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        let end = keyboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+            !keyboard.exists && !shelf.exists && terminal.frame.height > initialHeight + 40
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed, "The pull should uncover the transcript")
+
+        terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        XCTAssertTrue(shelf.exists)
+        app.typeText("ok\n")
+        XCTAssertTrue(screenContains("draft-intact"), "Only deliberately typed text should reach the program")
+
+        let selectionStart = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.2))
+        let selectionEnd = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.5))
+        selectionStart.press(forDuration: 0.05, thenDragTo: selectionEnd)
+        XCTAssertTrue(keyboard.exists, "A downward selection inside the transcript should keep the keyboard open")
+        app.typeText("\n")
+        XCTAssertTrue(screenContains("drag-done"))
+        let output = terminal.value as? String ?? ""
+        XCTAssertNotNil(output.range(of: #"draft-intact\s+\[<0M\s+\[<32M\s+\[<0m\s+drag-done"#, options: .regularExpression),
+                        "Expected a button press, motion and release. Received \(output)")
+    }
+
     func testShellTransferPromptsAndUploadCancellation() {
         terminal.tap()
         command("printf '\\033]1337;RequestUpload=format=tgz\\007'; IFS= read -r reply; printf 'upload-%s\\n' \"$reply\"")
