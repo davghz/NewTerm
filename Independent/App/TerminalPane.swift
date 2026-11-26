@@ -8,113 +8,123 @@ private func crossesKeyboard(top: CGFloat, fingerY: CGFloat, dx: CGFloat, dy: CG
 
 private final class MouseGesture: UIGestureRecognizer {
     var report: ((CGPoint, Int, Bool, Bool, UIKeyModifierFlags) -> Void)?
+    // Returns the distance consumed by whole wheel ticks.
+    var scroll: ((CGPoint, CGFloat, UIKeyModifierFlags) -> CGFloat)?
     var shouldFocusOnTap: (() -> Bool)?
     var focusOnTap: (() -> Void)?
     var keyboardTopInWindow: (() -> CGFloat?)?
     var dismissKeyboard: (() -> Void)?
+
+    private enum Mode { case pending, dragging, scrolling, pressed }
+    private var mode: Mode = .pending
     private var contact: UITouch?
     private var button = 0
     private var pressOrigin = CGPoint.zero
     private var startInWindow = CGPoint.zero
+    private var lastWheelY: CGFloat = 0
     private var pressFlags: UIKeyModifierFlags = []
-    private var sentPress = false
     private var hold: DispatchWorkItem?
     private var keyboardTop: CGFloat?
-    private var pendingMotion: [(point: CGPoint, flags: UIKeyModifierFlags)] = []
+    private var focusTap = false
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        if contact != nil {
-            if keyboardTop != nil { sendPress() }
-            for touch in touches { ignore(touch, for: event) }
+        if let contact = contact {
+            if contact.type == .direct && mode != .pressed {
+                hold?.cancel()
+                state = state == .possible ? .failed : .cancelled
+            } else {
+                for touch in touches { ignore(touch, for: event) }
+            }
             return
         }
         guard touches.count == 1, let touch = touches.first else { state = .failed; return }
         contact = touch
-        button = event.buttonMask.contains(.secondary) ? 2 : event.buttonMask.contains(UIEvent.ButtonMask(rawValue: 4)) ? 1 : 0
         pressOrigin = touch.location(in: view)
         startInWindow = touch.location(in: nil)
         pressFlags = event.modifierFlags
-        state = .began
-        if touch.type == .direct, let top = keyboardTopInWindow?(), startInWindow.y < top {
-            keyboardTop = top
-        }
-        if touch.type == .direct && (keyboardTop != nil || shouldFocusOnTap?() == true) {
-            // Holding before dragging gives the application live mouse input in any direction.
-            let work = DispatchWorkItem { [weak self] in self?.sendPress() }
+        button = event.buttonMask.contains(.secondary) ? 2 : event.buttonMask.contains(UIEvent.ButtonMask(rawValue: 4)) ? 1 : 0
+        if touch.type == .direct {
+            lastWheelY = startInWindow.y
+            keyboardTop = keyboardTopInWindow?()
+            focusTap = shouldFocusOnTap?() == true
+            let work = DispatchWorkItem { [weak self] in self?.beginPress() }
             hold = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
         } else {
-            sendPress()
+            beginPress()
         }
     }
 
-    private func sendPress() {
-        guard !sentPress, contact != nil else { return }
-        hold?.cancel()
-        hold = nil
-        keyboardTop = nil
-        sentPress = true
+    private func beginPress() {
+        guard contact != nil, mode == .pending, state == .possible else { return }
+        mode = .pressed
+        state = .began
         report?(pressOrigin, button, false, false, pressFlags)
-        for motion in pendingMotion {
-            report?(motion.point, button, false, true, motion.flags)
+    }
+
+    private func updateDrag(_ touch: UITouch, flags: UIKeyModifierFlags, ending: Bool) {
+        let position = touch.location(in: nil)
+        let dx = position.x - startInWindow.x
+        let dy = position.y - startInWindow.y
+        if mode == .pending {
+            guard hypot(dx, dy) >= 10 else { return }
+            hold?.cancel()
+            mode = .dragging
+            state = .began
         }
-        pendingMotion.removeAll()
+        if mode == .dragging {
+            guard abs(dy) > abs(dx) else { return }
+            if let top = keyboardTop, dy > 0 {
+                // A continuous downward pull may still reach the keyboard. Wait for the lift
+                // before sending any input; wheel events cannot be taken back from the PTY.
+                guard ending else { return }
+                if crossesKeyboard(top: top, fingerY: position.y, dx: dx, dy: dy) {
+                    dismissKeyboard?()
+                    return
+                }
+            }
+            mode = .scrolling
+        }
+        lastWheelY += scroll?(touch.location(in: view), position.y - lastWheelY, flags) ?? 0
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let touch = contact, touches.contains(touch) else { return }
-        let position = touch.location(in: nil)
-        let dx = position.x - startInWindow.x
-        let dy = position.y - startInWindow.y
-        guard sentPress || !pendingMotion.isEmpty || hypot(dx, dy) >= 10 else { return }
-        if keyboardTop != nil, dy > abs(dx) {
-            // A downward drag may still cross onto the keyboard. Keep an ordered path
-            // for terminal selection, thinning long drags to bound the work on release.
-            hold?.cancel()
-            hold = nil
-            if pendingMotion.count == 64 {
-                pendingMotion = stride(from: 0, to: pendingMotion.count, by: 2).map { pendingMotion[$0] }
-            }
-            pendingMotion.append((touch.location(in: view), event.modifierFlags))
-            state = .changed
-            return
+        if mode == .pressed {
+            report?(touch.location(in: view), button, false, true, event.modifierFlags)
+        } else {
+            updateDrag(touch, flags: event.modifierFlags, ending: false)
         }
-        sendPress()
-        report?(touch.location(in: view), button, false, true, event.modifierFlags)
-        state = .changed
+        if state == .began || state == .changed { state = .changed }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let touch = contact, touches.contains(touch) else { return }
         hold?.cancel()
-        let position = touch.location(in: nil)
-        let dx = position.x - startInWindow.x
-        let dy = position.y - startInWindow.y
-        if let top = keyboardTop, crossesKeyboard(top: top, fingerY: position.y, dx: dx, dy: dy) {
-            dismissKeyboard?()
-        } else if sentPress || keyboardTop != nil || hypot(dx, dy) >= 10 {
-            sendPress()
-            report?(touch.location(in: view), button, true, false, event.modifierFlags)
-        } else {
-            focusOnTap?()
+        if mode != .pressed {
+            updateDrag(touch, flags: event.modifierFlags, ending: true)
+            if mode == .pending {
+                if focusTap { focusOnTap?() } else { beginPress() }
+            }
         }
+        if mode == .pressed { report?(touch.location(in: view), button, true, false, event.modifierFlags) }
         state = .ended
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let touch = contact, touches.contains(touch) else { return }
         hold?.cancel()
-        if sentPress { report?(touch.location(in: view), button, true, false, event.modifierFlags) }
-        state = .cancelled
+        if mode == .pressed { report?(touch.location(in: view), button, true, false, event.modifierFlags) }
+        state = state == .possible ? .failed : .cancelled
     }
 
     override func reset() {
         hold?.cancel()
         hold = nil
         contact = nil
-        sentPress = false
+        mode = .pending
         keyboardTop = nil
-        pendingMotion.removeAll()
+        focusTap = false
         super.reset()
     }
 }
@@ -209,6 +219,11 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
             guard let self = self else { return }
             if !self.active { self.onActivate?() }
             self.sendMouse(point: point, button: button, release: release, motion: motion, modifiers: modifiers)
+        }
+        mouse.scroll = { [weak self] point, distance, modifiers in
+            guard let self = self else { return 0 }
+            if !self.active { self.onActivate?() }
+            return self.sendWheel(distance: distance, at: point, modifiers: modifiers, maxTicks: self.rowCount)
         }
         mouse.isEnabled = false
         canvas.addGestureRecognizer(mouse)
@@ -549,13 +564,17 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         let diff = pan.translation(in: canvas).y
         pan.setTranslation(.zero, in: canvas)
         wheelDelta += diff
+        wheelDelta -= sendWheel(distance: wheelDelta, at: pan.location(in: canvas), modifiers: [], maxTicks: 16)
+    }
+
+    private func sendWheel(distance: CGFloat, at point: CGPoint, modifiers: UIKeyModifierFlags, maxTicks: Int) -> CGFloat {
         let height = max(canvas.cellSize.height, 8)
-        let point = pan.location(in: canvas)
-        for _ in 0..<min(16, Int(abs(wheelDelta)/height)) {
-            let up = wheelDelta > 0
-            sendMouse(point: point, button: up ? 64 : 65, release: false, motion: false, modifiers: [])
-            wheelDelta += up ? -height : height
+        let ticks = min(maxTicks, Int(abs(distance) / height))
+        let up = distance > 0
+        for _ in 0..<ticks {
+            sendMouse(point: point, button: up ? 64 : 65, release: false, motion: false, modifiers: modifiers)
         }
+        return CGFloat(ticks) * (up ? height : -height)
     }
     private func sendMouse(point: CGPoint, button: Int, release: Bool, motion: Bool, modifiers: UIKeyModifierFlags) {
         guard let frame = canvas.frameData else { return }

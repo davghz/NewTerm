@@ -316,8 +316,13 @@ final class InteractionTests: XCTestCase {
         let keyboard = app.keyboards.firstMatch
         let shelf = app.scrollViews["t3rm.keyShelf"]
         XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
-        // Mode 1000 reports button presses and releases. SGR mode gives each coordinate in decimal.
-        command(#"stty -echo; printf '\033[?1000h\033[?1006hmouse-%s\n' ready; IFS= read -r wire; printf '\033[?1000l\033[?1006l'; stty echo; printf 'wire-%s\n' begin; printf %s "$wire" | tr '\033' '\n'; printf '\nwire-%s\n' end"#)
+        // Keep the tap coordinates for comparison, but collapse consecutive wheel ticks.
+        command([
+            #"stty -echo; printf '\033[?1000h\033[?1006hmouse-%s\n' ready; IFS= read -r wire"#,
+            #"printf '\033[?1000l\033[?1006l'; stty echo; printf 'wire-%s\n' begin"#,
+            #"printf %s "$wire" | tr '\033' '\n' | sed -E 's/^\[<64;[0-9]+;[0-9]+M/wheel/' | uniq"#,
+            #"printf '\nwire-%s\n' end"#
+        ].joined(separator: "; "))
         XCTAssertTrue(screenContains("mouse-ready"))
 
         let initialHeight = terminal.frame.height
@@ -329,7 +334,7 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
 
         let dragStart = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.3))
-        let dragEnd = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.67, dy: 0.55))
+        let dragEnd = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.55))
         dragStart.press(forDuration: 0.05, thenDragTo: dragEnd)
         XCTAssertFalse(keyboard.exists, "Dragging in the terminal should still reach the program")
 
@@ -343,9 +348,9 @@ final class InteractionTests: XCTestCase {
         app.typeText("\n")
         XCTAssertTrue(screenContains("wire-end"))
 
-        // Each ESC starts a new line. Expect one drag, the typed x, then a click at one position.
+        // Only upward wheel ticks precede the typed x. The visible tap sends a matching click pair.
         let output = try XCTUnwrap(terminal.value as? String)
-        let packets = #"wire-begin\s+\[<0;\d+;\d+M\s+\[<0;\d+;\d+mx\s+\[<0;(\d+);(\d+)M\s+\[<0;\1;\2m\s+wire-end"#
+        let packets = #"wire-begin\s+(?:wheel\s+)?wheelx\s+\[<0;(\d+);(\d+)M\s+\[<0;\1;\2m\s+wire-end"#
         XCTAssertNotNil(output.range(of: packets, options: .regularExpression), "Unexpected terminal input: \(output)")
     }
 
@@ -384,12 +389,16 @@ final class InteractionTests: XCTestCase {
         let selectionStart = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.2))
         let selectionEnd = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.5))
         selectionStart.press(forDuration: 0.05, thenDragTo: selectionEnd)
-        XCTAssertTrue(keyboard.exists, "A downward selection inside the transcript should keep the keyboard open")
+        selectionEnd.press(forDuration: 0.6, thenDragTo: selectionStart)
+        let right = selectionStart.withOffset(CGVector(dx: 80, dy: 0))
+        selectionStart.press(forDuration: 0.05, thenDragTo: right)
+        selectionStart.press(forDuration: 1.2, thenDragTo: selectionEnd)
+        XCTAssertTrue(keyboard.exists, "Scrolling and selecting inside the transcript should keep the keyboard open")
         app.typeText("\n")
         XCTAssertTrue(screenContains("drag-done"))
         let output = terminal.value as? String ?? ""
-        XCTAssertNotNil(output.range(of: #"draft-intact\s+\[<0M\s+\[<32M\s+\[<0m\s+drag-done"#, options: .regularExpression),
-                        "Expected a button press, motion and release. Received \(output)")
+        XCTAssertNotNil(output.range(of: #"draft-intact\s+\[<64M\s+\[<65M\s+\[<0M\s+\[<32M\s+\[<0m\s+drag-done"#, options: .regularExpression),
+                        "Expected wheel ticks in each direction, followed by a held selection drag. Received \(output)")
     }
 
     func testShellTransferPromptsAndUploadCancellation() {
