@@ -18,7 +18,9 @@ The review package has its own app identifier, preferences, and SSH URL scheme. 
 
 ## Use
 
-Tap the selected terminal to type. In a split view, tap another pane once to select it, then tap it again to open its keyboard. Use **+** for another shell and the magnifying glass to find text. Open **…** for **Split Pane** or **Settings** on a narrow screen. Wider windows show these controls directly. Settings previews the selected theme and font and supports importing fonts.
+Tap the selected terminal to type. In a split view, tap another pane once to select it, then tap it again to open its keyboard. To dismiss the keyboard, drag from either pane onto the keys. The pane you were typing in stays selected and keeps its draft.
+
+Use **+** for another shell and the magnifying glass to find text. Open **…** for **Split Pane** or **Settings** on a narrow screen. Wider windows show these controls directly. Settings previews the selected theme and font and supports importing fonts.
 
 Swipe up or down in Codex to scroll the conversation. To select text, hold one finger still for about a second, then drag and lift to copy. In a regular shell, the same hold opens transcript selection.
 
