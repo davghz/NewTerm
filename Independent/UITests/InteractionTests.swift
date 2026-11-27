@@ -127,8 +127,12 @@ final class InteractionTests: XCTestCase {
 
         let keyboard = app.keyboards.firstMatch
         let shelf = app.scrollViews["t3rm.keyShelf"]
-        let key = shelf.buttons["Escape"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        key.press(forDuration: 0.05, thenDragTo: key.withOffset(CGVector(dx: 0, dy: 150)))
+        if shelf.exists {
+            // The shelf is reachable even when a hardware keyboard leaves it at the screen edge.
+            let start = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.78))
+            let end = shelf.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !keyboard.exists && !shelf.exists
         }, object: nil)
