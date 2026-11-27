@@ -148,7 +148,6 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
 
     private func actionMenu(compact: Bool) -> UIMenu {
         var actions = [
-            UIAction(title: "Show Keyboard", image: UIImage(systemName: "keyboard")) { [weak self] _ in self?.current.active?.focus() },
             UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in self?.current.active?.pasteContent() },
             UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { [weak self] _ in self?.current.active?.showTranscript(search: false) }
         ]

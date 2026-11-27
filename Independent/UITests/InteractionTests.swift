@@ -180,6 +180,7 @@ final class InteractionTests: XCTestCase {
         more.tap()
         XCTAssertTrue(app.buttons["Split Pane"].isHittable)
         XCTAssertTrue(app.buttons["Settings"].isHittable)
+        XCTAssertFalse(app.buttons["Show Keyboard"].exists)
     }
 
     func testSearchAcrossSoftWrapAndWideGlyph() {
