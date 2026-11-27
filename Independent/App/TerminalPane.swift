@@ -13,8 +13,8 @@ private final class MouseGesture: UIGestureRecognizer {
     // Returns the distance consumed by whole wheel ticks.
     var scroll: ((CGPoint, CGFloat, UIKeyModifierFlags) -> CGFloat)?
     var selectionEnded: ((CGPoint, CGPoint) -> Void)?
-    var shouldFocusOnTap: (() -> Bool)?
-    var focusOnTap: (() -> Void)?
+    var shouldHandlePaneTap: (() -> Bool)?
+    var onPaneTap: (() -> Void)?
     var keyboardTopInWindow: (() -> CGFloat?)?
     var dismissKeyboard: (() -> Void)?
 
@@ -28,7 +28,7 @@ private final class MouseGesture: UIGestureRecognizer {
     private var pressFlags: UIKeyModifierFlags = []
     private var hold: DispatchWorkItem?
     private var keyboardTop: CGFloat?
-    private var focusTap = false
+    private var isPaneTap = false
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         if let contact = contact {
@@ -49,7 +49,7 @@ private final class MouseGesture: UIGestureRecognizer {
         if touch.type == .direct {
             lastWheelY = startInWindow.y
             keyboardTop = keyboardTopInWindow?()
-            focusTap = shouldFocusOnTap?() == true
+            isPaneTap = shouldHandlePaneTap?() == true
             let work = DispatchWorkItem { [weak self] in self?.beginPress() }
             hold = work
             DispatchQueue.main.asyncAfter(deadline: .now() + selectionHoldDuration, execute: work)
@@ -109,7 +109,7 @@ private final class MouseGesture: UIGestureRecognizer {
         } else {
             updateDrag(touch, flags: event.modifierFlags, ending: true)
             if mode == .pending {
-                if focusTap { focusOnTap?() } else { beginPress() }
+                if isPaneTap { onPaneTap?() } else { beginPress() }
             }
         }
         if mode == .pressed { report?(touch.location(in: view), button, true, false, event.modifierFlags) }
@@ -129,7 +129,7 @@ private final class MouseGesture: UIGestureRecognizer {
         contact = nil
         mode = .pending
         keyboardTop = nil
-        focusTap = false
+        isPaneTap = false
         super.reset()
     }
 }
@@ -213,18 +213,19 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         listeningIndicator.accessibilityLabel = "Listening"
         listeningIndicator.accessibilityTraits = .staticText
         addSubview(listeningIndicator)
-        tap = UITapGestureRecognizer(target: self, action: #selector(focus))
+        tap = UITapGestureRecognizer(target: self, action: #selector(handlePaneTap))
         tap.delegate = self
         scroll.addGestureRecognizer(tap)
         touchSelection = UILongPressGestureRecognizer(target: self, action: #selector(selectAt(_:)))
         touchSelection.minimumPressDuration = selectionHoldDuration
         scroll.addGestureRecognizer(touchSelection)
         tap.require(toFail: touchSelection)
-        mouse.shouldFocusOnTap = { [weak self] in
-            guard let self = self, !self.input.isFirstResponder, let root = self.window?.rootViewController?.view else { return false }
-            return root.keyboardLayoutGuide.layoutFrame.minY >= root.safeAreaLayoutGuide.layoutFrame.maxY - 1
+        mouse.shouldHandlePaneTap = { [weak self] in
+            guard let self = self else { return false }
+            // A second tap can arrive while the prior pane's keyboard is sliding away.
+            return !self.active || !self.input.isFirstResponder
         }
-        mouse.focusOnTap = { [weak self] in self?.focus() }
+        mouse.onPaneTap = { [weak self] in self?.handlePaneTap() }
         mouse.selectionEnded = { [weak self] start, end in
             guard let self = self, self.active, self.visible,
                   self.canvas.address(start) != self.canvas.address(end) else { return }
@@ -269,7 +270,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         keyboardPull.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         keyboardPull.delegate = self
         scroll.addGestureRecognizer(keyboardPull)
-        canvas.activate = { [weak self] in self?.focus() }
+        canvas.activate = { [weak self] in self?.handlePaneTap() }
         input.onKey = { [weak self] key, flags in self?.send(key, flags) }
         input.dictationCursor = { [weak model] in model?.dictationCursor ?? .hidden }
         input.onPaste = { [weak self] in self?.pasteContent() }
@@ -509,8 +510,16 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         }
     }
 
-    @objc func focus() {
-        onActivate?()
+    @objc private func handlePaneTap() {
+        if active {
+            focus()
+        } else {
+            onActivate?()
+        }
+    }
+
+    func focus() {
+        if !active { onActivate?() }
         if !ended { input.becomeFirstResponder() }
     }
     private func send(_ key: TerminalKey, _ flags: UIKeyModifierFlags) {

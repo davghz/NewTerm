@@ -23,7 +23,14 @@ final class TerminalCanvas: UIView {
     var fraction: CGFloat = 0
     var horizontalInset: CGFloat = 7
     private var drawnSize = CGSize.zero
-    var active = false { didSet { if oldValue != active { setNeedsDisplay() } } }
+    var active = false {
+        didSet {
+            guard oldValue != active else { return }
+            if active { accessibilityTraits.insert(.selected) }
+            else { accessibilityTraits.remove(.selected) }
+            setNeedsDisplay()
+        }
+    }
     var activate: (() -> Void)?
 
     override init(frame: CGRect) {

@@ -31,6 +31,14 @@ final class InteractionTests: XCTestCase {
             app.buttons["Settings"].tap()
         }
     }
+    private func splitPane() {
+        if app.buttons["t3rm.split"].isHittable {
+            app.buttons["t3rm.split"].tap()
+        } else {
+            app.buttons["t3rm.actions"].tap()
+            app.buttons["Split Pane"].tap()
+        }
+    }
     private func attachScreen(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
@@ -114,12 +122,7 @@ final class InteractionTests: XCTestCase {
         terminal.tap()
         command("cd /tmp && printf '\\033]7;file://localhost%s\\007' \"$PWD\" && printf 'cwd-%s\\n' set")
         XCTAssertTrue(screenContains("cwd-set"))
-        if app.buttons["t3rm.split"].isHittable {
-            app.buttons["t3rm.split"].tap()
-        } else {
-            app.buttons["t3rm.actions"].tap()
-            app.buttons["Split Pane"].tap()
-        }
+        splitPane()
         let divider = app.descendants(matching: .any)["t3rm.divider"].firstMatch
         XCTAssertTrue(divider.waitForExistence(timeout: 5))
         let all = app.descendants(matching: .any).matching(identifier: "t3rm.terminal")
@@ -139,6 +142,96 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(all.count, 1)
         XCTAssertGreaterThan(first.frame.height, height * 1.5)
 
+    }
+
+    func testFirstTapSelectsInactivePaneAndSecondTapOpensKeyboard() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        splitPane()
+        let panes = app.descendants(matching: .any).matching(identifier: "t3rm.terminal")
+        XCTAssertEqual(panes.count, 2)
+        let ordered = panes.allElementsBoundByIndex.sorted { $0.frame.midX < $1.frame.midX }
+        let left = ordered[0]
+        let right = ordered[1]
+        XCTAssertLessThanOrEqual(left.frame.maxX, right.frame.minX)
+        waitForShell(in: right)
+        XCTAssertTrue(right.isSelected)
+        let keyboard = app.keyboards.firstMatch
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        XCTAssertFalse(keyboard.exists)
+        XCTAssertFalse(shelf.exists)
+
+        let center = CGVector(dx: 0.5, dy: 0.5)
+        left.coordinate(withNormalizedOffset: center).tap()
+        XCTAssertTrue(left.isSelected)
+        XCTAssertFalse(keyboard.exists, "Switching from the new pane to the original pane opened the keyboard")
+        XCTAssertFalse(shelf.exists)
+        right.coordinate(withNormalizedOffset: center).tap()
+        XCTAssertTrue(right.isSelected)
+        XCTAssertFalse(keyboard.exists, "Switching back should only select the new pane")
+        XCTAssertFalse(shelf.exists)
+
+        right.coordinate(withNormalizedOffset: center).tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        XCTAssertTrue(shelf.exists)
+        command("printf 'selected-%s\\n' second")
+        XCTAssertTrue(screenContains("selected-second", in: right))
+        XCTAssertFalse((left.value as? String ?? "").contains("selected-second"))
+    }
+
+    func testTabSwitchWithHiddenKeyboardThenSingleTapOpensKeyboard() {
+        app.buttons["t3rm.newTab"].tap()
+        let second = app.buttons["t3rm.tab.2"]
+        XCTAssertTrue(second.waitForExistence(timeout: 5))
+        XCTAssertTrue(second.isSelected)
+        let first = app.buttons["t3rm.tab.1"]
+        first.tap()
+        XCTAssertTrue(first.isSelected)
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertFalse(keyboard.exists)
+        XCTAssertFalse(app.scrollViews["t3rm.keyShelf"].exists)
+
+        terminal.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        command("printf 'selected-%s\\n' tab")
+        XCTAssertTrue(screenContains("selected-tab"))
+    }
+
+    func testSwitchToMouseReportingPaneDismissesKeyboardAndConsumesTap() throws {
+        terminal.tap()
+        command([
+            #"stty -echo; printf '\033[?1000h\033[?1006hpane-%s\n' ready; IFS= read -r wire"#,
+            #"printf '\033[?1000l\033[?1006l'; stty echo; printf 'wire-%s\n' begin"#,
+            #"printf %s "$wire" | tr '\033' '\n'; printf '\nwire-%s\n' end"#
+        ].joined(separator: "; "))
+        XCTAssertTrue(screenContains("pane-ready"))
+        splitPane()
+        let panes = app.descendants(matching: .any).matching(identifier: "t3rm.terminal")
+        XCTAssertEqual(panes.count, 2)
+        let first = panes.element(boundBy: 0)
+        waitForShell(in: panes.element(boundBy: 1))
+        let keyboard = app.keyboards.firstMatch
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        XCTAssertTrue(shelf.exists)
+
+        func tapFirstPane() {
+            first.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.5)).tap()
+        }
+        tapFirstPane()
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !keyboard.exists && !shelf.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+        tapFirstPane()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        app.typeText("x")
+        tapFirstPane()
+        app.typeText("\n")
+
+        XCTAssertTrue(screenContains("wire-end", in: first))
+        let output = try XCTUnwrap(first.value as? String)
+        let packets = #"wire-begin\s+x\s+\[<0;(\d+);(\d+)M\s+\[<0;\1;\2m\s+wire-end"#
+        XCTAssertNotNil(output.range(of: packets, options: .regularExpression), "Unexpected terminal input: \(output)")
     }
 
     func testCustomPromptAndLiteralPercent() {
