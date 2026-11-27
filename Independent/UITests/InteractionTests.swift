@@ -697,4 +697,69 @@ final class InteractionTests: XCTestCase {
         download.buttons["Cancel"].tap()
     }
 
+    func testInactiveMousePaneSeparatesKeyboardPullFromWheelScroll() {
+        terminal.tap()
+        command(#"printf 'upper-%s\n' ready; IFS= read -r line; [ "$line" = draftok ] && printf 'draft-%s\n' preserved"#)
+        XCTAssertTrue(screenContains("upper-ready"))
+        app.typeText("draft")
+        splitPane()
+        let panes = app.descendants(matching: .any).matching(identifier: "t3rm.terminal")
+        XCTAssertEqual(panes.count, 2)
+        let ordered = panes.allElementsBoundByIndex.sorted { $0.frame.midY < $1.frame.midY }
+        let upper = ordered[0]
+        let lower = ordered[1]
+        waitForShell(in: lower)
+        XCTAssertTrue(lower.isSelected)
+        let keyboard = app.keyboards.firstMatch
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+
+        // Each Return ends a capture. Check the raw PTY input before printing the verdict.
+        command([
+            #"stty -echo; printf '\033[?1002h\033[?1006hprobe-%s\n' ready"#,
+            #"IFS= read -r crossed; [ -z "$crossed" ] && result=empty || result=leaked; printf 'cross-%s\n' "$result""#,
+            #"IFS= read -r wheel; printf '\033[?1002l\033[?1006l'; stty echo"#,
+            #"printf '%s\n' "$wheel" | grep -Eq "^($(printf '\033')\[<64;[0-9]+;[0-9]+M)+$" && result=up || result=unexpected"#,
+            #"printf 'wheel-result-%s\n' "$result""#
+        ].joined(separator: "; "))
+        XCTAssertTrue(screenContains("probe-ready", in: lower))
+
+        func waitForDismissal(line: UInt = #line) {
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !keyboard.exists && !shelf.exists
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed, line: line)
+        }
+        func selectAndOpen(_ pane: XCUIElement) {
+            pane.tap()
+            waitForDismissal()
+            XCTAssertTrue(pane.isSelected)
+            pane.tap()
+            XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        }
+        selectAndOpen(upper)
+        let start = lower.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        let across = keyboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        start.press(forDuration: 0.05, thenDragTo: across)
+        waitForDismissal()
+        XCTAssertTrue(upper.isSelected)
+        upper.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        app.typeText("ok\n")
+        XCTAssertTrue(screenContains("draft-preserved", in: upper))
+        selectAndOpen(lower)
+        app.typeText("\n")
+        XCTAssertTrue(screenContains("cross-empty", in: lower), "A dismissal leaked input to the mouse-reporting pane")
+
+        selectAndOpen(upper)
+        let inside = lower.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        lower.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).press(forDuration: 0.05, thenDragTo: inside)
+        waitForDismissal()
+        XCTAssertTrue(lower.isSelected)
+        lower.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        app.typeText("\n")
+        XCTAssertTrue(screenContains("wheel-result-up", in: lower), "An in-pane downward drag should send only wheel-up packets")
+    }
+
 }
