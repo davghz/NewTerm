@@ -180,6 +180,26 @@ final class TerminalSessionTests: XCTestCase {
         XCTAssertFalse(session.tryWrite(Data([1])))
     }
 
+    func testCloseLetsShellHangUpBackgroundJobsAfterUnresponsiveForegroundJob() throws {
+        let session = TerminalSession()
+        defer { session.close() }
+        let output = try start(session)
+        command("stty -echo; sleep 30 & printf '\\nBACKGROUND=%d\\n' $!\n" +
+                "sh -c 'trap \"\" HUP; printf \"FOREGROUND%s\\n\" READY; exec sleep 30'", session)
+        XCTAssertTrue(output.waitFor("FOREGROUNDREADY\r\n"), output.text)
+        let line = try XCTUnwrap(output.text.components(separatedBy: .newlines).first { $0.hasPrefix("BACKGROUND=") })
+        let background = try XCTUnwrap(Int32(line.dropFirst("BACKGROUND=".count)))
+        XCTAssertEqual(getpgid(background), background)
+        session.close()
+        XCTAssertTrue(output.waitForExit(), output.text)
+        let deadline = Date().addingTimeInterval(2)
+        while getpgid(background) == background && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        if getpgid(background) == background {
+            kill(background, SIGKILL)
+            XCTFail("The shell's background job survived close")
+        }
+    }
+
     func testCloseKillsForegroundPipelineAfterItsLeaderExited() throws {
         let session = TerminalSession(), other = TerminalSession()
         defer { session.close(); other.close() }

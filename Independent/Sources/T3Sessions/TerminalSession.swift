@@ -244,6 +244,7 @@ private final class SessionWorker {
         var watchingWrite = false
         var shellSignaled = false
         var killDeadline: DispatchTime?
+        let hangupGrace = DispatchTimeInterval.milliseconds(350)
         var exitCode: Int32 = 1
         while true {
             let pending = applyPending()
@@ -252,20 +253,24 @@ private final class SessionWorker {
                 let signaled = t3_signal_foreground(terminal.master, terminal.child, SIGHUP) == 0
                 t3_signal_foreground(terminal.master, terminal.child, SIGCONT)
                 shellSignaled = foreground == terminal.child && signaled
-                killDeadline = .now() + .milliseconds(350)
+                killDeadline = .now() + hangupGrace
             }
             if let deadline = killDeadline {
                 let foreground = t3_foreground(terminal.master)
-                if DispatchTime.now() >= deadline {
-                    // Signal the foreground before terminating its session leader.
-                    t3_signal_foreground(terminal.master, terminal.child, SIGKILL)
-                    Darwin.kill(terminal.child, SIGKILL)
-                } else if !shellSignaled && (foreground <= 1 || foreground == terminal.child) {
-                    // Keep the controlling session attached while a job handles HUP.
-                    // The worker owns this direct child's PID until waitpid reaps it.
+                let jobInForeground = foreground > 1 && foreground != terminal.child
+                let expired = DispatchTime.now() >= deadline
+                if !shellSignaled && (!jobInForeground || expired) {
+                    if jobInForeground {
+                        t3_signal_foreground(terminal.master, terminal.child, SIGKILL)
+                    }
+                    // Let the shell hang up its remaining jobs and save its history.
                     Darwin.kill(terminal.child, SIGHUP)
                     Darwin.kill(terminal.child, SIGCONT)
                     shellSignaled = true
+                    killDeadline = .now() + hangupGrace
+                } else if expired {
+                    t3_signal_foreground(terminal.master, terminal.child, SIGKILL)
+                    Darwin.kill(terminal.child, SIGKILL)
                 }
             }
 

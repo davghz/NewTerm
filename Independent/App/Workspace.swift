@@ -76,12 +76,10 @@ final class TerminalSceneDelegate: UIResponder, UIWindowSceneDelegate {
 }
 
 private final class TerminalTab {
-    let number: Int
     var panes: [TerminalPane] = []
     var weights: [CGFloat] = []
     var activeIndex = 0
-    var title: String
-    init(number: Int) { self.number = number; title = "Shell \(number)" }
+    var customTitle: String?
     var active: TerminalPane? { panes.indices.contains(activeIndex) ? panes[activeIndex] : nil }
 }
 
@@ -93,7 +91,6 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
     private let root = UIStackView()
     private var tabs: [TerminalTab] = []
     private var selected = 0
-    private var nextNumber = 1
     private var foreground = true
     private var pickerPurpose: PickerPurpose?
     private enum PickerPurpose { case upload(TerminalPane), download(URL) }
@@ -174,8 +171,7 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
 
     @objc private func newTab() {
         let cwd = tabs.isEmpty ? nil : current.active?.directory
-        let tab = TerminalTab(number: nextNumber)
-        nextNumber += 1
+        let tab = TerminalTab()
         tab.panes.append(makePane(directory: cwd, tab: tab))
         tab.weights = [1]
         tabs.append(tab)
@@ -191,8 +187,8 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
             self.markActive()
         }
         pane.onTitle = { [weak self, weak tab] title in
-            guard let self = self, let tab = tab, tab.title != title else { return }
-            tab.title = title
+            guard let self = self, let tab = tab, tab.customTitle != title else { return }
+            tab.customTitle = title
             self.refreshTabs()
         }
         pane.onTranscript = { [weak self, weak pane] transcript, search in
@@ -239,7 +235,8 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
     }
 
     private func refreshTabs() {
-        toolbar.show(titles: tabs.map(\.title), selected: selected)
+        let titles = tabs.enumerated().map { index, tab in tab.customTitle ?? "Shell \(index + 1)" }
+        toolbar.show(titles: titles, selected: selected)
     }
     @objc private func splitPane() {
         let tab = current
