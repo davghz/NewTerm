@@ -178,6 +178,46 @@ final class InteractionTests: XCTestCase {
         XCTAssertFalse((left.value as? String ?? "").contains("selected-second"))
     }
 
+    func testPullFromInactiveLowerPaneDismissesUpperKeyboardAndPreservesDraft() {
+        splitPane()
+        let panes = app.descendants(matching: .any).matching(identifier: "t3rm.terminal")
+        XCTAssertEqual(panes.count, 2)
+        let ordered = panes.allElementsBoundByIndex.sorted { $0.frame.midY < $1.frame.midY }
+        let upper = ordered[0]
+        let lower = ordered[1]
+        XCTAssertLessThanOrEqual(upper.frame.maxY, lower.frame.minY)
+        waitForShell(in: lower)
+        XCTAssertTrue(lower.isSelected)
+
+        upper.tap()
+        XCTAssertTrue(upper.isSelected)
+        upper.tap()
+        let keyboard = app.keyboards.firstMatch
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        XCTAssertTrue(shelf.exists)
+        command(#"printf 'upper-%s\n' ready; IFS= read -r line; [ "$line" = draftok ] && printf 'draft-%s\n' preserved"#)
+        XCTAssertTrue(screenContains("upper-ready", in: upper))
+        app.typeText("draft")
+
+        let start = lower.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = keyboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        let lowerHeight = lower.frame.height
+        start.press(forDuration: 0.05, thenDragTo: end)
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !keyboard.exists && !shelf.exists && lower.frame.height > lowerHeight + 20
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+        XCTAssertTrue(upper.isSelected)
+        XCTAssertFalse(lower.isSelected)
+
+        upper.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        app.typeText("ok\n")
+        XCTAssertTrue(screenContains("draft-preserved", in: upper))
+        XCTAssertFalse((lower.value as? String ?? "").contains("draft-preserved"))
+    }
+
     func testTabSwitchWithHiddenKeyboardThenSingleTapOpensKeyboard() {
         app.buttons["t3rm.newTab"].tap()
         let second = app.buttons["t3rm.tab.2"]
