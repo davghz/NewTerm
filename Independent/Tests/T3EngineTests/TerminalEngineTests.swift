@@ -23,23 +23,28 @@ final class TerminalEngineTests: XCTestCase {
         }
     }
 
-    func testNonblankBeforeCursorFollowsTheTerminalInsertionPoint() {
-        let cases: [(String, Bool)] = [
-            ("", false),
-            ("ab", true),
-            ("ab ", false),
-            ("ab\r\n", false),
-            ("界", true),
-            ("\u{3000}", false),
-            ("   x", true),
-            ("abc ", false),
-            ("abc " + esc + "[3G", true),
-            ("abc" + esc + "[?1049h", false)
+    func testTextBeforeCursorFollowsTheTerminalInsertionPoint() {
+        let cases: [(String, String?)] = [
+            ("", nil),
+            ("ab", "b"),
+            ("ab ", " "),
+            ("ab\r\n", nil),
+            ("界", "界"),
+            ("\u{3000}", "\u{3000}"),
+            ("e\u{301}", "e\u{301}"),
+            ("   x", "x"),
+            ("abc ", " "),
+            ("abc " + esc + "[3G", "b"),
+            ("abcdE\r", "d"),
+            ("abc界\r", "c"),
+            ("ab界X\r", "界"),
+            ("abcdefghi" + esc + "[H", "d"),
+            ("abcdefghi" + esc + "[?1049h", nil)
         ]
         for (output, expected) in cases {
             let engine = TerminalEngine(columns: 4, rows: 2)
             engine.feed(Data(output.utf8))
-            XCTAssertEqual(engine.hasNonblankBeforeCursor, expected, output.debugDescription)
+            XCTAssertEqual(engine.textBeforeCursor, expected, output.debugDescription)
         }
     }
 

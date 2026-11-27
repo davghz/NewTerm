@@ -61,6 +61,15 @@ enum TerminalKey {
     }
 }
 
+enum DictationCursor {
+    case hidden
+    case visible(previous: String?)
+
+    init(_ engine: TerminalEngine) {
+        self = engine.modes.cursorVisible ? .visible(previous: engine.textBeforeCursor) : .hidden
+    }
+}
+
 // UIKit owns composition and dictation. Deliver committed text exactly once,
 // including replacements produced by Pinyin, Japanese and dictation.
 final class TerminalInput: UITextView, UITextViewDelegate {
@@ -69,10 +78,12 @@ final class TerminalInput: UITextView, UITextViewDelegate {
     var onCopy: (() -> Void)?
     var onFocus: ((Bool) -> Void)?
     var onDictationListeningChanged: ((Bool) -> Void)?
-    var hasNonblankBeforeCursor: () -> Bool = { false }
+    var dictationCursor: () -> DictationCursor = { .visible(previous: nil) }
     private var hasComposition = false
     private var dictationPlaceholders = Set<NSObject>()
-    private var expectingDictationText = false
+    private enum DictationResultState { case idle, recordingEnded, placeholderRemoved }
+    private var dictationResultState: DictationResultState = .idle
+    private var completedPlaceholders = 0
     private var deferredInsertions: [String] = []
     private var flushScheduled = false
 
@@ -132,14 +143,11 @@ final class TerminalInput: UITextView, UITextViewDelegate {
     }
     override func insertDictationResult(_ dictationResult: [UIDictationPhrase]) {
         let value = dictationResult.map(\.text).joined()
-        // An explicit result can arrive before UIKit removes its placeholder.
-        // Retire it now so that removal cannot classify subsequent typing as dictation.
-        if !expectingDictationText, dictationPlaceholders.count == 1 { dictationPlaceholders.removeAll() }
         hasComposition = false
         text = ""
         backgroundColor = .clear
         textColor = .clear
-        if !value.isEmpty { sendCommittedText(value, isDictationResult: true) }
+        commitDictation(endingWith: value)
     }
 
     // iOS 15 reports "dictation" as the active keyboard language while recording.
@@ -152,11 +160,12 @@ final class TerminalInput: UITextView, UITextViewDelegate {
     }
 
     override func dictationRecordingDidEnd() {
+        if dictationResultState == .idle { dictationResultState = .recordingEnded }
         onDictationListeningChanged?(false)
     }
 
     override func dictationRecognitionFailed() {
-        if !hasComposition { text = ""; textColor = .clear; backgroundColor = .clear }
+        discardPendingResult()
         onDictationListeningChanged?(false)
     }
 
@@ -175,48 +184,95 @@ final class TerminalInput: UITextView, UITextViewDelegate {
     override func removeDictationResultPlaceholder(_ placeholder: Any, willInsertResult: Bool) {
         guard let token = placeholder as? NSObject, dictationPlaceholders.remove(token) != nil else { return }
         if willInsertResult {
-            // UIKit can confirm the placeholder on either side of insertText.
-            expectingDictationText = true
-            if deferredInsertions.count > 1 { flushInsertions() }
-            else { scheduleFlush() }
-        } else if dictationPlaceholders.isEmpty && !expectingDictationText {
-            flushInsertions()
+            if completedPlaceholders > 0 {
+                completedPlaceholders -= 1
+            } else {
+                dictationResultState = .placeholderRemoved
+                if !deferredInsertions.isEmpty, deferredInsertions != [" "] { commitDictation() }
+            }
+        } else {
+            completedPlaceholders = min(completedPlaceholders, dictationPlaceholders.count)
+            if dictationPlaceholders.isEmpty { discardPendingResult() }
         }
     }
 
-    private func sendCommittedText(_ value: String, isDictationResult: Bool = false) {
-        if !deferredInsertions.isEmpty {
-            deferredInsertions.append(value)
-            if isDictationResult || expectingDictationText {
-                expectingDictationText = true
-                flushInsertions()
+    private func sendCommittedText(_ value: String) {
+        if dictationResultState != .idle {
+            if value == " ", deferredInsertions.isEmpty {
+                deferredInsertions.append(value)
+            } else {
+                commitDictation(endingWith: value)
             }
-        } else if !isDictationResult, value == " ", expectingDictationText || !dictationPlaceholders.isEmpty,
-                  !hasNonblankBeforeCursor() {
-            // iOS 15 may send its word separator separately from the phrase.
+        } else if dictationPlaceholders.count > completedPlaceholders {
+            // iOS 15 can confirm the result just after insertText. Hold this turn
+            // only; ordinary typing during a longer recognition wait must still echo.
             deferredInsertions.append(value)
-            scheduleFlush()
+            if !flushScheduled {
+                flushScheduled = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.flushScheduled = false
+                    if self.dictationResultState == .idle { self.flushOrdinaryInput() }
+                }
+            }
         } else {
-            expectingDictationText = false
             onKey?(.text(value), [])
         }
     }
 
-    private func scheduleFlush() {
-        guard !flushScheduled else { return }
-        flushScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            self?.flushScheduled = false
-            self?.flushInsertions()
+    private func commitDictation(endingWith value: String? = nil) {
+        if dictationResultState != .placeholderRemoved, completedPlaceholders < dictationPlaceholders.count {
+            completedPlaceholders += 1
         }
+        if value == "" {
+            discardPendingResult()
+            return
+        }
+        if let value = value { deferredInsertions.append(value) }
+        let suppliedSpace = deferredInsertions.count > 1 && deferredInsertions.first == " "
+        let phrase = deferredInsertions.dropFirst(suppliedSpace ? 1 : 0).joined()
+        deferredInsertions.removeAll()
+        dictationResultState = .idle
+        guard let first = phrase.first else { return }
+        let separate: Bool
+        switch dictationCursor() {
+        case .hidden:
+            // Full-screen programs may leave the rendering cursor on a status line.
+            separate = suppliedSpace && !first.isWhitespace && !first.isPunctuation
+        case .visible(let previous):
+            if suppliedSpace {
+                separate = previous?.last.map { !$0.isWhitespace } == true && !first.isWhitespace && !first.isPunctuation
+            } else {
+                separate = Self.needsWordSpace(after: previous?.last, before: first)
+            }
+        }
+        onKey?(.text(separate ? " " + phrase : phrase), [])
     }
 
-    private func flushInsertions() {
-        let skipSeparator = expectingDictationText && deferredInsertions.count > 1
-        let pending = deferredInsertions.dropFirst(skipSeparator ? 1 : 0)
+    private static func needsWordSpace(after previous: Character?, before first: Character) -> Bool {
+        guard let previous = previous else { return false }
+        // Unicode word-break classes distinguish alphabetic words from scripts
+        // that conventionally run together, such as Chinese and Japanese.
+        func isWordCharacter(_ character: Character) -> Bool {
+            String(character).range(of: #"^[\p{wb=ALetter}\p{wb=Hebrew_Letter}\p{wb=Numeric}]"#,
+                                    options: .regularExpression) != nil
+        }
+        return isWordCharacter(first) && (isWordCharacter(previous) || ".,;:!?…)]}".contains(previous))
+    }
+
+    private func flushOrdinaryInput() {
+        let pending = deferredInsertions
         deferredInsertions.removeAll()
-        expectingDictationText = false
+        dictationResultState = .idle
         for value in pending { onKey?(.text(value), []) }
+    }
+
+    private func discardPendingResult() {
+        if dictationResultState != .idle && deferredInsertions == [" "] {
+            deferredInsertions.removeAll()
+        }
+        flushOrdinaryInput()
+        if !hasComposition { text = ""; textColor = .clear; backgroundColor = .clear }
     }
 
     private func deliver() {
@@ -229,7 +285,7 @@ final class TerminalInput: UITextView, UITextViewDelegate {
     }
 
     override func deleteBackward() {
-        flushInsertions()
+        flushOrdinaryInput()
         if hasComposition || markedTextRange != nil || !text.isEmpty { super.deleteBackward() }
         else { onKey?(.backspace, []) }
     }
@@ -241,16 +297,24 @@ final class TerminalInput: UITextView, UITextViewDelegate {
         }
         return super.canPerformAction(action, withSender: sender)
     }
-    override func paste(_ sender: Any?) { flushInsertions(); onPaste?() }
+    override func paste(_ sender: Any?) { flushOrdinaryInput(); onPaste?() }
     override func copy(_ sender: Any?) { onCopy?() }
-    func textViewDidBeginEditing(_ textView: UITextView) { inputModeChanged(); onFocus?(true) }
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        // UIKit can still deliver the old view's result after it loses focus.
+        // Retire any abandoned recognition when a fresh editing session starts.
+        discardPendingResult()
+        dictationPlaceholders.removeAll()
+        completedPlaceholders = 0
+        inputModeChanged()
+        onFocus?(true)
+    }
     func textViewDidEndEditing(_ textView: UITextView) {
         onDictationListeningChanged?(false)
         onFocus?(false)
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        flushInsertions()
+        flushOrdinaryInput()
         var unused = Set<UIPress>()
         for press in presses {
             guard let key = press.key, !key.modifierFlags.contains(.command), markedTextRange == nil else {

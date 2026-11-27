@@ -140,8 +140,8 @@ final class TerminalModel {
 
     func foregroundCommandIs(_ name: String) -> Bool { session.foregroundCommandIs(name) }
 
-    var hasNonblankBeforeCursor: Bool {
-        queue.sync { engine.hasNonblankBeforeCursor }
+    var dictationCursor: DictationCursor {
+        queue.sync { DictationCursor(engine) }
     }
 
     func resize(columns: Int, rows: Int) {

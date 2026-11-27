@@ -271,7 +271,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         scroll.addGestureRecognizer(keyboardPull)
         canvas.activate = { [weak self] in self?.focus() }
         input.onKey = { [weak self] key, flags in self?.send(key, flags) }
-        input.hasNonblankBeforeCursor = { [weak model] in model?.hasNonblankBeforeCursor ?? false }
+        input.dictationCursor = { [weak model] in model?.dictationCursor ?? .hidden }
         input.onPaste = { [weak self] in self?.pasteContent() }
         input.onCopy = { [weak self] in self?.showTranscript(search: false) }
         input.onFocus = { [weak self] focused in

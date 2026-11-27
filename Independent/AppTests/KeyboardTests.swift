@@ -133,11 +133,12 @@ final class KeyboardTests: XCTestCase {
     func testTypedPrefixBeforeDictationIsPreserved() {
         let bytes = keyboardBytes { input in
             input.insertText("H")
+            input.dictationCursor = { .visible(previous: "H") }
             replaceHypothesis(in: input, with: "H")
             waitForKeyboardCallbacks()
             input.insertDictationResult([Phrase("Hello")])
         }
-        XCTAssertEqual(bytes, Data("HHello".utf8))
+        XCTAssertEqual(bytes, Data("H Hello".utf8))
     }
 
     func testAttributedMarkedTextCommitsOnlyWhenUnmarked() {
@@ -169,15 +170,110 @@ final class KeyboardTests: XCTestCase {
         }
     }
 
-    func testDictationPreservesSeparatorAfterExistingWord() {
-        let bytes = keyboardBytes { input in
-            input.hasNonblankBeforeCursor = { true }
-            let placeholder = input.insertDictationResultPlaceholder
-            input.insertText(" ")
-            input.insertText("monde")
-            input.removeDictationResultPlaceholder(placeholder, willInsertResult: true)
+    func testDictationSeparatesWordsAndPreservesPunctuationAndWhitespace() {
+        let cases: [(previous: String?, phrase: String, expected: String)] = [
+            ("d", "Example", " Example"),
+            ("d", ", for example", ", for example"),
+            ("d", "  Example", "  Example"),
+            (" ", "Example", "Example"),
+            (".", "Example", " Example"),
+            ("/", "bin", "bin"),
+            ("世", "界", "界"),
+            (nil, "Example", "Example")
+        ]
+        for (previous, phrase, expected) in cases {
+            let bytes = keyboardBytes { input in
+                input.dictationCursor = { .visible(previous: previous) }
+                input.insertDictationResult([Phrase(phrase)])
+            }
+            XCTAssertEqual(bytes, Data(expected.utf8), "After \(previous.debugDescription), dictated \(phrase.debugDescription)")
         }
-        XCTAssertEqual(bytes, Data(" monde".utf8))
+    }
+
+    func testWordAfterRecordingGetsOneSeparatorWithEitherPlaceholderCallbackOrder() {
+        for removeFirst in [false, true] {
+            for systemSendsSpace in [false, true] {
+                let bytes = keyboardBytes { input in
+                    input.dictationCursor = { .visible(previous: "d") }
+                    let placeholder = input.insertDictationResultPlaceholder
+                    if removeFirst { input.removeDictationResultPlaceholder(placeholder, willInsertResult: true) }
+                    else { input.dictationRecordingDidEnd() }
+                    if systemSendsSpace { input.insertText(" ") }
+                    input.insertText("Example")
+                    if !removeFirst { input.removeDictationResultPlaceholder(placeholder, willInsertResult: true) }
+                    input.insertText("s")
+                }
+                XCTAssertEqual(bytes, Data(" Examples".utf8), "removeFirst=\(removeFirst), systemSendsSpace=\(systemSendsSpace)")
+            }
+        }
+    }
+
+    func testOnlyTheConfirmedUtteranceGetsWordSpacing() {
+        let bytes = keyboardBytes { input in
+            input.dictationCursor = { .visible(previous: "d") }
+            input.insertText("a")
+            input.dictationRecordingDidEnd()
+            waitForKeyboardCallbacks()
+            input.insertText("Example")
+            input.insertText("s")
+            input.dictationRecordingDidEnd()
+            input.dictationRecognitionFailed()
+            input.insertText("x")
+        }
+        XCTAssertEqual(bytes, Data("a Examplesx".utf8))
+    }
+
+    func testEmptyResultAndRefocusingDoNotAddSpacesToOrdinaryTyping() {
+        let bytes = keyboardBytes { input in
+            input.dictationCursor = { .visible(previous: "d") }
+            let finished = input.insertDictationResultPlaceholder
+            input.dictationRecordingDidEnd()
+            input.insertText(" ")
+            input.insertDictationResult([])
+            input.removeDictationResultPlaceholder(finished, willInsertResult: true)
+            input.insertText("s")
+
+            let cancelled = input.insertDictationResultPlaceholder
+            input.dictationRecordingDidEnd()
+            input.insertText(" ")
+            input.removeDictationResultPlaceholder(cancelled, willInsertResult: false)
+
+            let abandoned = input.insertDictationResultPlaceholder
+            input.dictationRecordingDidEnd()
+            input.textViewDidEndEditing(input)
+            input.textViewDidBeginEditing(input)
+            input.removeDictationResultPlaceholder(abandoned, willInsertResult: true)
+            input.insertText("x")
+        }
+        XCTAssertEqual(bytes, Data("sx".utf8))
+    }
+
+    func testResultCanStillBeDeliveredToTheViewThatLostFocus() {
+        let bytes = keyboardBytes { input in
+            input.dictationCursor = { .visible(previous: "d") }
+            input.dictationRecordingDidEnd()
+            input.textViewDidEndEditing(input)
+            input.insertText("Example")
+            input.textViewDidBeginEditing(input)
+            input.insertText("s")
+        }
+        XCTAssertEqual(bytes, Data(" Examples".utf8))
+    }
+
+    func testHiddenTerminalCursorDoesNotUsePaintedTextForWordSpacing() {
+        let engine = TerminalEngine(columns: 30, rows: 8)
+        engine.feed(Data("\u{1b}[?1049h\u{1b}[?25lStatus".utf8))
+        XCTAssertEqual(engine.textBeforeCursor, "s")
+        let bytes = keyboardBytes { input in
+            input.dictationCursor = { DictationCursor(engine) }
+            input.insertDictationResult([Phrase("First")])
+            input.dictationRecordingDidEnd()
+            input.insertText(" ")
+            input.insertText("second")
+            engine.feed(Data("\u{1b}[?25h".utf8))
+            input.insertDictationResult([Phrase("visible")])
+        }
+        XCTAssertEqual(bytes, Data("First second visible".utf8))
     }
 
     func testPhraseResultWithPendingSpacePreservesDictatedWhitespace() {
