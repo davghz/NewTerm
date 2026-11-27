@@ -106,6 +106,78 @@ final class InteractionTests: XCTestCase {
         search.typeText("hidden-ready")
         XCTAssertTrue(app.staticTexts["1 of 1"].waitForExistence(timeout: 6))
     }
+    func testCompactSessionBarScrollsLongTitlesAndKeepsActionsReachable() throws {
+        try XCTSkipIf(app.frame.width >= 560, "The compact toolbar uses the overflow menu below 560 points")
+        let add = app.buttons["t3rm.newTab"]
+        let search = app.buttons["t3rm.search"]
+        let more = app.buttons["t3rm.actions"]
+        let first = app.buttons["t3rm.tab.1"]
+        let last = app.buttons["t3rm.tab.6"]
+        func setTitle(_ title: String, of tab: XCUIElement, output: String) {
+            // Hold the shell after printing so its next prompt cannot overwrite the OSC title.
+            command("printf '\\033]0;\(title)\\007\\033[2J\\033[H'; " + output + "; IFS= read -r reply")
+            let titled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", title), object: tab)
+            XCTAssertEqual(XCTWaiter.wait(for: [titled], timeout: 8), .completed)
+        }
+        terminal.tap()
+        setTitle("Workspace diagnostics", of: first, output: "uname -sm")
+        for _ in 0..<5 { add.tap() }
+        waitForShell(in: terminal)
+        setTitle("Terminal environment", of: last, output: #"printf 'TERM=%s\n' "$TERM""#)
+
+        let keyboard = app.keyboards.firstMatch
+        let shelf = app.scrollViews["t3rm.keyShelf"]
+        let key = shelf.buttons["Escape"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        key.press(forDuration: 0.05, thenDragTo: key.withOffset(CGVector(dx: 0, dy: 150)))
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !keyboard.exists && !shelf.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 5), .completed)
+
+        let strip = app.scrollViews.containing(.button, identifier: "t3rm.tab.6").firstMatch
+        XCTAssertTrue(strip.exists)
+        let viewport = strip.frame
+        XCTAssertTrue(last.isSelected && last.isHittable)
+        XCTAssertTrue(viewport.insetBy(dx: -1, dy: -1).contains(last.frame))
+        XCTAssertFalse(first.isHittable)
+        let actions = [add, search, more]
+        let originalFrames = actions.map(\.frame)
+        XCTAssertLessThanOrEqual(viewport.maxX, add.frame.minX)
+        attachScreen("Glass toolbar with last session selected")
+
+        // Anchor to the window so both directions start inside the strip even after a tab scrolls offscreen.
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let y = viewport.midY - app.frame.minY
+        let leading = origin.withOffset(CGVector(dx: viewport.minX - app.frame.minX + 12, dy: y))
+        let trailing = origin.withOffset(CGVector(dx: viewport.maxX - app.frame.minX - 12, dy: y))
+        func reveal(_ tab: XCUIElement, from start: XCUICoordinate, to end: XCUICoordinate) {
+            for _ in 0..<4 {
+                if tab.isHittable { break }
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
+            XCTAssertTrue(tab.isHittable)
+            tab.tap()
+            XCTAssertTrue(tab.isSelected)
+            XCTAssertTrue(viewport.insetBy(dx: -1, dy: -1).contains(tab.frame))
+        }
+        reveal(first, from: leading, to: trailing)
+        attachScreen("Glass toolbar with first session selected")
+        reveal(last, from: trailing, to: leading)
+        for (button, frame) in zip(actions, originalFrames) {
+            XCTAssertEqual(button.frame, frame)
+            XCTAssertGreaterThanOrEqual(frame.width, 44)
+            XCTAssertGreaterThanOrEqual(frame.height, 44)
+            XCTAssertTrue(button.isHittable)
+        }
+        XCTAssertFalse(keyboard.exists)
+        search.tap()
+        XCTAssertTrue(app.searchFields["t3rm.searchField"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        more.tap()
+        XCTAssertTrue(app.buttons["Split Pane"].isHittable)
+        XCTAssertTrue(app.buttons["Settings"].isHittable)
+    }
+
     func testSearchAcrossSoftWrapAndWideGlyph() {
         terminal.tap()
         command("printf 'long-%065d-%s\\n' 0 ok; printf '\\347\\225\\214\\n'")
