@@ -184,6 +184,7 @@ final class WorkspaceController: UIViewController, UIDocumentPickerDelegate {
 
     private func makePane(directory: String?, tab: TerminalTab) -> TerminalPane {
         let pane = TerminalPane(directory: directory)
+        pane.selectedInput = { [weak tab] in tab?.active?.input }
         pane.onActivate = { [weak self, weak pane, weak tab] in
             guard let self = self, let pane = pane, let tab = tab, self.current === tab,
                   let index = tab.panes.firstIndex(where: { $0 === pane }) else { return }

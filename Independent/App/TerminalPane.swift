@@ -145,6 +145,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
     private let mouse = MouseGesture()
     private let keyboardPull = UIPanGestureRecognizer()
     private var keyboardTopAtDragStart: CGFloat?
+    private weak var keyboardInputAtDragStart: TerminalInput?
     private var trackpad: UIPanGestureRecognizer!
     private var pointerHover: UIHoverGestureRecognizer!
     private var wheel: UIPanGestureRecognizer!
@@ -179,6 +180,7 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         }
     }
     var inForeground = true { didSet { updateVisibility() } }
+    var selectedInput: (() -> TerminalInput?)?
     var onActivate: (() -> Void)?
     var onTitle: ((String) -> Void)?
     var onTranscript: ((Transcript, Bool) -> Void)?
@@ -232,14 +234,8 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
             // Codex sends OSC 52 after releasing a text selection.
             self.copyDeadline = ProcessInfo.processInfo.systemUptime + 2
         }
-        mouse.keyboardTopInWindow = { [weak self] in
-            guard let self = self, self.input.isFirstResponder,
-                  let window = self.window, let root = window.rootViewController?.view else { return nil }
-            let top = root.keyboardLayoutGuide.layoutFrame.minY
-            guard top < root.safeAreaLayoutGuide.layoutFrame.maxY - 1 else { return nil }
-            return root.convert(CGPoint(x: 0, y: top), to: window).y
-        }
-        mouse.dismissKeyboard = { [weak self] in self?.input.resignFirstResponder() }
+        mouse.keyboardTopInWindow = { [weak self] in self?.captureKeyboardTopInWindow() }
+        mouse.dismissKeyboard = { [weak self] in self?.keyboardInputAtDragStart?.resignFirstResponder() }
         mouse.report = { [weak self] point, button, release, motion, modifiers in
             guard let self = self else { return }
             if !self.active { self.onActivate?() }
@@ -483,12 +479,21 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
         return velocity.y > abs(velocity.x)
     }
 
+    // A drag in a split can cross the keyboard belonging to a different pane.
+    private func captureKeyboardTopInWindow() -> CGFloat? {
+        let owner = selectedInput?() ?? input
+        guard owner.isFirstResponder, let window = window,
+              let root = window.rootViewController?.view else { return nil }
+        let top = root.keyboardLayoutGuide.layoutFrame.minY
+        guard top < root.safeAreaLayoutGuide.layoutFrame.maxY - 1 else { return nil }
+        keyboardInputAtDragStart = owner
+        return root.convert(CGPoint(x: 0, y: top), to: window).y
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if gestureRecognizer === tap { return true }
-        guard gestureRecognizer === keyboardPull, input.isFirstResponder, !mouse.isEnabled,
-              let root = window?.rootViewController?.view else { return false }
-        let top = root.keyboardLayoutGuide.layoutFrame.minY
-        guard top < root.safeAreaLayoutGuide.layoutFrame.maxY, touch.location(in: root).y < top else { return false }
+        guard gestureRecognizer === keyboardPull, !mouse.isEnabled,
+              let top = captureKeyboardTopInWindow(), touch.location(in: window).y < top else { return false }
         keyboardTopAtDragStart = top
         return true
     }
@@ -501,12 +506,11 @@ final class TerminalPane: UIView, UIScrollViewDelegate, UIGestureRecognizerDeleg
 
     // The scroll view alone may never begin dragging when the terminal has no scrollback.
     @objc private func pullAcrossKeyboard(_ pan: UIPanGestureRecognizer) {
-        guard pan.state == .ended, let top = keyboardTopAtDragStart,
-              let root = window?.rootViewController?.view else { return }
-        let finger = pan.location(in: root)
-        let delta = pan.translation(in: root)
+        guard pan.state == .ended, let top = keyboardTopAtDragStart, let window = window else { return }
+        let finger = pan.location(in: window)
+        let delta = pan.translation(in: window)
         if crossesKeyboard(top: top, fingerY: finger.y, dx: delta.x, dy: delta.y) {
-            input.resignFirstResponder()
+            keyboardInputAtDragStart?.resignFirstResponder()
         }
     }
 
