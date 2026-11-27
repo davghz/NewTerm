@@ -47,7 +47,10 @@ final class InteractionTests: XCTestCase {
     }
 
     func testShellSearchCopyPasteAndKeyboardRotation() {
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertFalse(keyboard.exists)
         terminal.tap()
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
         command("printf '%s%s\\n' copy- proof")
         XCTAssertTrue(screenContains("copy-proof"))
         attachScreen("Portrait with keyboard")
@@ -64,6 +67,7 @@ final class InteractionTests: XCTestCase {
         app.buttons["t3rm.actions"].tap()
         let menuPaste = app.buttons.matching(NSPredicate(format: "label == 'Paste' AND identifier != 't3rm.keyShelf.paste'")).firstMatch
         XCTAssertTrue(menuPaste.isHittable)
+        XCTAssertFalse(app.buttons["Show Keyboard"].exists)
         menuPaste.tap()
         app.typeText("\n")
         XCTAssertTrue(screenContains("pasted-copy-proof"))
