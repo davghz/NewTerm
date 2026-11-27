@@ -1,12 +1,55 @@
 import UIKit
 
+/// Decorative material behind a group of controls. Touches and VoiceOver go to the controls.
+private final class ToolbarCapsule: UIVisualEffectView {
+    private let sheen = CAGradientLayer()
+
+    init() {
+        super.init(effect: nil)
+        isUserInteractionEnabled = false
+        accessibilityElementsHidden = true
+        translatesAutoresizingMaskIntoConstraints = false
+        clipsToBounds = true
+        layer.cornerRadius = 19
+        layer.cornerCurve = .continuous
+        contentView.layer.addSublayer(sheen)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func apply(_ chrome: TerminalChrome, highContrast: Bool) {
+        let solid = UIAccessibility.isReduceTransparencyEnabled
+        if solid {
+            effect = nil
+        } else if effect == nil {
+            effect = UIBlurEffect(style: .systemMaterial)
+        }
+        contentView.backgroundColor = solid ? chrome.raised : chrome.surface.withAlphaComponent(0.62)
+        layer.borderWidth = highContrast ? 1.5 : 1 / max(traitCollection.displayScale, 1)
+        layer.borderColor = (highContrast ? chrome.secondary : chrome.text.withAlphaComponent(0.29)).cgColor
+        sheen.isHidden = solid
+        sheen.colors = [
+            UIColor.white.withAlphaComponent(chrome.isDark ? 0.13 : 0.60).cgColor,
+            UIColor.white.withAlphaComponent(0).cgColor
+        ]
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        sheen.frame = contentView.bounds
+        CATransaction.commit()
+    }
+}
+
 /// A scrolling session strip and a fixed set of reachable workspace actions.
 final class WorkspaceBar: UIView {
     private let strip = UIScrollView()
     private let tabs = UIStackView()
     private let actions = UIStackView()
     private let row = UIStackView()
-    private let rule = UIView()
+    private let sessionSurface = ToolbarCapsule()
+    private let actionSurface = ToolbarCapsule()
     private let newTab = UIButton(type: .system)
     private let split = UIButton(type: .system)
     private let search = UIButton(type: .system)
@@ -25,8 +68,9 @@ final class WorkspaceBar: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        addSubview(sessionSurface)
+        addSubview(actionSurface)
         row.alignment = .fill
-        row.spacing = 4
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
         strip.showsHorizontalScrollIndicator = false
@@ -37,6 +81,8 @@ final class WorkspaceBar: UIView {
         tabs.translatesAutoresizingMaskIntoConstraints = false
         strip.addSubview(tabs)
         row.addArrangedSubview(strip)
+        let spacer = UIView()
+        row.addArrangedSubview(spacer)
         row.addArrangedSubview(actions)
         actions.alignment = .center
         actions.setContentHuggingPriority(.required, for: .horizontal)
@@ -48,11 +94,15 @@ final class WorkspaceBar: UIView {
             (more, "ellipsis", "Terminal actions", "actions")
         ] {
             let icon = UIImage.SymbolConfiguration(pointSize: button === more ? 19 : 17, weight: .semibold)
-            button.setImage(UIImage(systemName: symbol, withConfiguration: icon), for: .normal)
+            var config = UIButton.Configuration.plain()
+            config.image = UIImage(systemName: symbol, withConfiguration: icon)
+            config.contentInsets = .zero
+            config.cornerStyle = .capsule
+            config.background.backgroundInsets = NSDirectionalEdgeInsets(top: 5, leading: 4, bottom: 5, trailing: 4)
+            button.configuration = config
             button.accessibilityLabel = name
             button.accessibilityIdentifier = "t3rm." + id
             button.isPointerInteractionEnabled = true
-            button.layer.cornerCurve = .continuous
             actions.addArrangedSubview(button)
             let width = button.widthAnchor.constraint(equalToConstant: 44)
             width.priority = .init(999) // A hidden stack item collapses to zero width.
@@ -60,18 +110,31 @@ final class WorkspaceBar: UIView {
             button.heightAnchor.constraint(equalToConstant: 44).isActive = true
         }
         more.showsMenuAsPrimaryAction = true
-        rule.isUserInteractionEnabled = false
-        addSubview(rule)
+        // Short tab lists hug their content. Long lists scroll in the space left by the actions.
+        let fitTabs = strip.widthAnchor.constraint(equalTo: tabs.widthAnchor, constant: 8)
+        fitTabs.priority = .defaultLow
+        for (surface, controls) in [(sessionSurface, strip as UIView), (actionSurface, actions as UIView)] {
+            NSLayoutConstraint.activate([
+                surface.leadingAnchor.constraint(equalTo: controls.leadingAnchor),
+                surface.trailingAnchor.constraint(equalTo: controls.trailingAnchor),
+                surface.centerYAnchor.constraint(equalTo: centerYAnchor),
+                surface.heightAnchor.constraint(equalToConstant: 38)
+            ])
+        }
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             row.topAnchor.constraint(equalTo: topAnchor), row.bottomAnchor.constraint(equalTo: bottomAnchor),
-            tabs.leadingAnchor.constraint(equalTo: strip.contentLayoutGuide.leadingAnchor),
-            tabs.trailingAnchor.constraint(equalTo: strip.contentLayoutGuide.trailingAnchor),
+            spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 8),
+            fitTabs,
+            tabs.leadingAnchor.constraint(equalTo: strip.contentLayoutGuide.leadingAnchor, constant: 4),
+            tabs.trailingAnchor.constraint(equalTo: strip.contentLayoutGuide.trailingAnchor, constant: -4),
             tabs.topAnchor.constraint(equalTo: strip.contentLayoutGuide.topAnchor),
             tabs.bottomAnchor.constraint(equalTo: strip.contentLayoutGuide.bottomAnchor),
             tabs.heightAnchor.constraint(equalTo: strip.frameLayoutGuide.heightAnchor)
         ])
+        NotificationCenter.default.addObserver(self, selector: #selector(transparencyChanged),
+                                               name: UIAccessibility.reduceTransparencyStatusDidChangeNotification, object: nil)
         apply(chrome)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -85,19 +148,18 @@ final class WorkspaceBar: UIView {
     func apply(_ appearance: TerminalChrome) {
         chrome = appearance
         backgroundColor = chrome.surface
-        rule.backgroundColor = chrome.stroke
-        for button in [split, search, settings, more] { button.tintColor = chrome.secondary }
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold))
-        config.baseForegroundColor = chrome.accent
-        config.background.backgroundColor = chrome.accentFill
-        config.background.cornerRadius = 9
-        config.background.backgroundInsets = NSDirectionalEdgeInsets(top: 7, leading: 7, bottom: 7, trailing: 7)
-        newTab.configuration = config
+        let highContrast = traitCollection.accessibilityContrast == .high
+        sessionSurface.apply(chrome, highContrast: highContrast)
+        actionSurface.apply(chrome, highContrast: highContrast)
+        for button in [newTab, split, search, settings, more] {
+            button.tintColor = button === newTab ? chrome.accent : (highContrast ? chrome.text : chrome.secondary)
+        }
         for (index, view) in tabs.arrangedSubviews.enumerated() {
             if let button = view as? UIButton { styleTab(button, index: index) }
         }
     }
+
+    @objc private func transparencyChanged() { apply(chrome) }
 
     func show(titles next: [String], selected: Int) {
         let previous = titles
@@ -146,11 +208,16 @@ final class WorkspaceBar: UIView {
         config.image = selected ? Self.sessionMark : nil
         config.imagePadding = 7
         config.imageColorTransformer = UIConfigurationColorTransformer { [chrome] _ in chrome.accent }
-        config.baseForegroundColor = selected ? chrome.text : chrome.secondary
+        let highContrast = traitCollection.accessibilityContrast == .high
+        config.baseForegroundColor = selected || highContrast ? chrome.text : chrome.secondary
         config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 11, bottom: 0, trailing: 11)
-        config.background.backgroundColor = selected ? chrome.raised : .clear
-        config.background.cornerRadius = 9
-        config.background.backgroundInsets = NSDirectionalEdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 0)
+        config.cornerStyle = .capsule
+        config.background.backgroundColor = selected ? chrome.accentFill : .clear
+        if selected {
+            config.background.strokeColor = chrome.accent.withAlphaComponent(highContrast ? 1 : 0.48)
+            config.background.strokeWidth = highContrast ? 1.5 : 1 / max(traitCollection.displayScale, 1)
+        }
+        config.background.backgroundInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)
         button.configuration = config
         button.accessibilityLabel = titles[index]
         button.accessibilityTraits = selected ? [.button, .selected] : .button
@@ -158,7 +225,9 @@ final class WorkspaceBar: UIView {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.preferredContentSizeCategory != previousTraitCollection?.preferredContentSizeCategory {
+        if traitCollection.preferredContentSizeCategory != previousTraitCollection?.preferredContentSizeCategory ||
+           traitCollection.accessibilityContrast != previousTraitCollection?.accessibilityContrast ||
+           traitCollection.displayScale != previousTraitCollection?.displayScale {
             apply(chrome)
             revealActive = true
             setNeedsLayout()
@@ -175,15 +244,14 @@ final class WorkspaceBar: UIView {
             more.menu = makeMenu?(compact)
         }
         super.layoutSubviews()
-        let pixel = 1 / (window?.screen.scale ?? UIScreen.main.scale)
-        rule.frame = CGRect(x: 0, y: bounds.height - pixel, width: bounds.width, height: pixel)
         guard revealActive || previousWidth != bounds.width else { return }
         previousWidth = bounds.width
         revealActive = false
         if tabs.arrangedSubviews.indices.contains(active) {
             row.layoutIfNeeded()
             let tab = tabs.arrangedSubviews[active]
-            strip.scrollRectToVisible(tab.convert(tab.bounds, to: strip), animated: false)
+            let visibleTab = tab.convert(tab.bounds, to: strip).insetBy(dx: -4, dy: 0)
+            strip.scrollRectToVisible(visibleTab, animated: false)
         }
     }
 
